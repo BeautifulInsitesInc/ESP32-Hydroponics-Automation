@@ -2,36 +2,33 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <LiquidCrystal_I2C.h>
-//#include <SimpleTimer.h>
-//SimpleTimer timer;
+#include <SimpleTimer.h>
+SimpleTimer timer;
 
-// Settings
+// ----- LCD SETTINGS --------
 int lcdColumns = 20; // LCD Columns
 int lcdRows = 4; // LCD Rows
 
-// Defaults
+// ----- DEFAULT SETTINGS ------
 bool temp_in_c = true; // Tempurature defaults to C
-int pump_init_delay = 10; // Initial time before starting the pump on startup
-int pump_on_time = 10; // how long the pump stays on for
-int pump_off_time = 20; // how long the pump stays off for
+int pump_init_delay = .5; // Minutes - Initial time before starting the pump on startup
+int pump_on_time = .5; // Minutes - how long the pump stays on for
+int pump_off_time = 1; // Minutes -  how long the pump stays off for
 
 // ----- SET PINS ------------------
-const int temp_pin = 12; // Tempurature sensor pin
-const int tds_pin = 35; // TDS sensor pin
-/*
-const int ph_in = 25; // pin the Ph sensor is connected to
-const int pump_out = 28; // set pump pin
-
-// ---- DEFAULT SETTINGS ----------
-
+const int temp_pin = 16; // Tempurature sensor pin
+const int tds_pin = 34; // TDS sensor pin - try 13 if 26 doesnt work
+const int ph_pin = 35; // pin the Ph sensor is connected to
+//const int pump_pin = 28; // set pump pin
 
 // =======================================================
 // ======= PH SENSOR =====================================
 // =======================================================
+
 float adc_resolution = 1024.0;
 //-----------------------------------------
-float calibration_adjustment_ph = -.08; // adjust this to calibrate
-int voltage_input_ph = 4.98; // voltage can be 5 or 3.3
+float calibration_adjustment_ph = 0; // adjust this to calibrate
+int voltage_input_ph = 5; // voltage can be 5 or 3.3
 //-----------------------------------------
 float calibration_value_ph = 21.34 + calibration_adjustment_ph;
 unsigned long int average_value_ph;
@@ -44,7 +41,7 @@ float getPH()
     //Serial.print("Loop readings = ");
     for(int i=0;i<10;i++) // take 10 readings
       { 
-        buffer_array_ph[i]=analogRead(ph_in);
+        buffer_array_ph[i]=analogRead(ph_pin);
         //Serial.print(buffer_array_ph[i]); // print the voltage readout in the Serial Monitor
         //Serial.print(" / ");
         delay(30);
@@ -72,7 +69,7 @@ float getPH()
  delay(0); // pause between serial monitor output - can be set to zero after testing
  return ph_value;
 }
-*/
+
 
 // =======================================================
 // ======= PPM OCEAN TDS METER SENSOR ====================
@@ -136,7 +133,7 @@ int getTDSReading()
 // =======================================================
 // ======= TEMPURATURE SENSOR DS18B20 ====================
 // =======================================================
-#define TEMPERATURE_PRECISION 11
+#define TEMPERATURE_PRECISION 10
 OneWire oneWire(temp_pin);// Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
 DallasTemperature waterTempSensor(&oneWire); // Pass our oneWire reference to Dallas Temperature.
 
@@ -148,11 +145,18 @@ void getWaterTemp()
     waterTempSensor.requestTemperatures();    // send the command to get temperatures
     tempC = waterTempSensor.getTempCByIndex(0);  // read temperature in °C
     tempF = tempC * 9 / 5 + 32; // convert °C to °F
+    Serial.print("tempC : ");
+    Serial.print(tempC);
+    Serial.print("  tempF : ");
+    Serial.println(tempF);
+    
     if (tempC == DEVICE_DISCONNECTED_C) // Something is wrong, so return an error
       {
+        Serial.println("Houston, we have a problem");
         tempC = -100; 
         tempF = tempC;
       }
+    delay(1000);
   }
 
 // =================================================
@@ -210,6 +214,7 @@ void displayMainscreenData() // Display the data that changes on main screen
           }
       }
     //----- Display TDS reading
+    /*
     lcd.setCursor(5,1);
     int tds = getTDSReading();
     //Serial.print(tds);
@@ -231,116 +236,13 @@ void displayMainscreenData() // Display the data that changes on main screen
     */
   }
 
-/*
+
 // ==================================================
 // ===========  PUMP CONTROL ========================
 // ==================================================
 int pump_init_delay_mills = pump_init_delay*1000;
 int pump_on_time_mills = pump_off_time *1000; // pump turns on after the time off delay
 int pump_off_time_mills = pump_off_time *1000; // pump turns off after teh time on delay
-int pump_on_timerID; // setup the on and off timer ids
-int pump_off_timerID;
-int pump_previous_state; // used to check if state of pump has changed
-int pump_pin_value = digitalRead(pump_out);
-
-void turnOnPump()
-{
-  Serial.print("Turning on pump...  ");
-  digitalWrite(pump_out, LOW); // turn on pump
-  Serial.print("Pump is on : ");
-  Serial.println(digitalRead(pump_out));
- }
-
-void turnOffPump()
-{
-  Serial.print("Turning off pump...  ");
-  digitalWrite(pump_out, HIGH); // turn off pump
-  Serial.print("Pump is off : ");
-  Serial.println(digitalRead(pump_out));
-}
-
-void pumpTimerFunction()
-{
-  pump_pin_value = digitalRead(pump_out);
-  Serial.print("pin value : ");
-  Serial.print(pump_pin_value);
-  if (pump_pin_value == 1)  // is it off?
-    {
-      Serial.print("   Pump is off : ");
-      Serial.println(pump_pin_value);
-      if (pump_previous_state == 0) // If it was previously on
-        {
-          Serial.println("pump has changed state to off ... ");
-          timer.setInterval(pump_off_time_mills, turnOnPump); // start timer to turn it off
-          pump_previous_state = 1;
-        }
-    }
-  if (pump_pin_value == 0)
-    {
-      Serial.print("Pump is on : ");
-      Serial.println(pump_pin_value);
-      if (pump_previous_state == 1) // if it just changed from off
-        {
-          Serial.println("pump has changed state to on... ");
-          timer.setInterval(pump_on_time_mills, turnOffPump);
-          pump_previous_state = 1;
-        }
-    }
-}
-
-void initalizePumpTimer() // Only run once at startup
-{
-  Serial.print("initalizePumpTimer Started");
-  pinMode(pump_out, OUTPUT); // setup Motor control pin to output
-  timer.setTimeout(pump_off_time_mills, pumpTimerFunction);
-  pump_previous_state = 1;
-  Serial.print("pump previous state set to current : ");
-  Serial.println(pump_previous_state);
-}
-
-void checkPumpStatus()
-{
-  
-  pump_pin_value = digitalRead(pump_out);
-  Serial.print("pin value : ");
-  Serial.println(pump_pin_value);
-  
-    
-    
-}
-
-// --- Serial print counter -----
-void printDigits(int digits) {//For displaying timer
-  Serial.print(":");
-  if(digits < 10)
-    Serial.print('0');
-  Serial.print(digits);
-}
-
-void pumpTimer()
-{
-  int h,m,s;
-  s = millis() / 1000;
-  m = s / 60;
-  h = s / 3600;
-  s = s - m * 60;
-  m = m - h * 60;
-  Serial.print(h);
-  printDigits(m);
-  printDigits(s);
-  Serial.println();
-}
-
-// ==================================================
-// ===========  RTC STUFF ===========================
-// ==================================================
-void rtcSetup()
-{
-
-
-}
-
-*/
 
 // ==================================================
 // ===========  MAIN SETUP ==========================
@@ -349,6 +251,7 @@ void setup(void)
   {
     Serial.begin(115200);// start serial port 115200
     Serial.println("Starting Hydroponics Automation Controler");
+
     // Initialize Sensors
     waterTempSensor.begin(); // initalize water temp sensor
     pinMode(tds_pin,INPUT); // setup TDS sensor pin
@@ -364,17 +267,9 @@ void setup(void)
 
 void loop(void)
 {
-  //sensors.requestTemperatures(); // request tempuratures
-  //getTDSReading(); // request TDS reasding
-  //getPH(); // get pH reading
-  //timer.run();
- 
-  //pumpTimerFunction();
-  
- 
+  getWaterTemp();
 
- // displayMainscreenData();
-
+  displayMainscreenData();
 }
 
 // ----------------- END MAIN LOOP ------------------------
