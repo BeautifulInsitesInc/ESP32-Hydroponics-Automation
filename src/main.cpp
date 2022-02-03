@@ -11,22 +11,35 @@
 RTC_DS3231 rtc; 
 SimpleTimer timer;
 
+// ----- GLOBAL VARIABLES --------
+int uptime_seconds;
+DateTime uptime;
+DateTime now;
+DateTime statechange;
+long int unix_now;
+long int unix_uptime;
+long int unix_statechange;
+
+
+
 // ----- LCD SETTINGS --------
 int lcdColumns = 20; // LCD Columns
 int lcdRows = 4; // LCD Rows
+LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);  // set the LCD address to 0x27 for a 16 chars and 2 line display
+
 
 // ----- DEFAULT SETTINGS ------
 bool temp_in_c = true; // Tempurature defaults to C
-int pump_init_delay = .5; // Minutes - Initial time before starting the pump on startup
-int pump_on_time = .5; // Minutes - how long the pump stays on for
-int pump_off_time = 1; // Minutes -  how long the pump stays off for
+float pump_init_delay = .5; // Minutes - Initial time before starting the pump on startup
+float pump_on_time = .5; // Minutes - how long the pump stays on for
+float pump_off_time = 1; // Minutes -  how long the pump stays off for
 
 // ----- SET PINS ------------------
 OneWire oneWire(16);// Tempurature pin - Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
 const int tds_pin = 34; // TDS sensor pin - try 13 if 26 doesnt work
 const int ph_pin = 35; // pH sensor pin
-const int pump_pin = 36; // pump relay
-const int heater_pin = 39; // heater relay
+const int pump_pin = 32; // pump relay
+const int heater_pin = 33; // heater relay
 
 // *************** CALIBRATION FUNCTION ******************
 // To calibrate actual votage read at pin to the esp32 reading
@@ -45,6 +58,11 @@ char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursd
 int hour;
 int minute;
 int second;
+int up_second;
+int up_minute;
+int up_hour;
+int up_day;
+
 
 void initalize_rtc()
   {
@@ -64,16 +82,34 @@ void initalize_rtc()
         // January 21, 2014 at 3am you would call:
         // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
       } 
+    
   }
 
-void getTime()
+void getUptime()
   {
-    DateTime now = rtc.now();
-    hour = now.hour();
-    minute = now.minute();
-    second = now.second();
+    up_day = uptime.day();
+    up_hour = uptime.hour();
+    up_minute = uptime.minute();
+    up_second = uptime.second();
   }
-void displayDate()
+void printDigits(int digit) // To alwasy display time in 2 digits
+  {
+      lcd.print(":");
+      if(digit < 10)
+        {
+          lcd.print('0');
+        }
+        lcd.print(digit);
+  }
+  void displayTime()  // Displays time in proper format on
+  {
+    
+    lcd.print(hour);
+    printDigits(minute);
+    //printDigits(second);
+  }
+
+void printDate() 
   {
     DateTime now = rtc.now();
 
@@ -90,37 +126,28 @@ void displayDate()
     Serial.print(now.minute(), DEC);
     Serial.print(':');
     Serial.print(now.second(), DEC);
+    Serial.print(" minutes up : ");
+    Serial.print(minute - up_minute);
+    Serial.print(" |     seconds up : ");
+    Serial.print(second - up_second);
+
+
+
+    delay(2000);
     Serial.println();
 
-    Serial.print(" since midnight 1/1/1970 = ");
-    Serial.print(now.unixtime());
-    Serial.print("s = ");
-    Serial.print(now.unixtime() / 86400L);
-    Serial.println("d");
+    
 
+    //Serial.print(" since midnight 1/1/1970 = ");
+    //Serial.print(now.unixtime());
+    
     // calculate a date which is 7 days, 12 hours, 30 minutes, 6 seconds into the future
-    DateTime future (now + TimeSpan(7,12,30,6));
+    /*DateTime future (now + TimeSpan(7,12,30,6));
 
-    Serial.print(" now + 7d + 12h + 30m + 6s: ");
-    Serial.print(future.year(), DEC);
-    Serial.print('/');
-    Serial.print(future.month(), DEC);
-    Serial.print('/');
-    Serial.print(future.day(), DEC);
-    Serial.print(' ');
-    Serial.print(future.hour(), DEC);
-    Serial.print(':');
-    Serial.print(future.minute(), DEC);
-    Serial.print(':');
-    Serial.print(future.second(), DEC);
-    Serial.println();
-
-    Serial.print("Temperature: ");
-    Serial.print(rtc.getTemperature());
-    Serial.println(" C");
-
-    Serial.println();
-    delay(3000);
+      Serial.print(" now + 7d + 12h + 30m + 6s: ");
+      Serial.print(future.year(), DEC);
+      Serial.print('/');
+    */
 
   }
 
@@ -192,16 +219,17 @@ void getPH()
     ph_value = voltage_input * calibrated_voltage;
     //ph_value = (-5.70 * calibrated_voltage) + calibration_value_ph; // Calculate the actual pH
   
-    Serial.print("    average_reading  = ");
-    Serial.print(average_reading );
-    Serial.print("      calculated_voltage = ");
-    Serial.print(calculated_voltage);
-    Serial.print("     calibtraded_voltage = ");
-    Serial.print(calibrated_voltage);
-    Serial.print("     ph_value = ");
-    Serial.print(ph_value);
-    delay(0); // pause between serial monitor output - can be set to zero after testing
-  
+    /*
+      Serial.print("    average_reading  = ");
+      Serial.print(average_reading );
+      Serial.print("      calculated_voltage = ");
+      Serial.print(calculated_voltage);
+      Serial.print("     calibtraded_voltage = ");
+      Serial.print(calibrated_voltage);
+      Serial.print("     ph_value = ");
+      Serial.println(ph_value);
+      delay(0); // pause between serial monitor output - can be set to zero after testing
+    */
   }
 
 // =======================================================
@@ -209,43 +237,45 @@ void getPH()
 // =======================================================
 
 int tds_value = 0;
+const int sample_count = 30;    // sum of sample point
+int analogBuffer[sample_count]; // store the analog value in the array, read from ADC
+int analogBufferTemp[sample_count];
+int analogBufferIndex = 0,copyIndex = 0;
 
 // Function to get median
-int getMedianNum(int bArray[], int iFilterLen)
-{
-  int bTab[iFilterLen];
-  for (byte i = 0; i < iFilterLen; i++)
-    bTab[i] = bArray[i];
-  int i, j, bTemp;
-  for (j = 0; j < iFilterLen - 1; j++)
+int getMedianNum(int bArray[], int iFilterLen) 
   {
-    for (i = 0; i < iFilterLen - j - 1; i++)
-    {
-      if (bTab[i] > bTab[i + 1])
+    int bTab[iFilterLen];
+    for (byte i = 0; i<iFilterLen; i++)
+      bTab[i] = bArray[i];
+    int i, j, bTemp;
+    for (j = 0; j < iFilterLen - 1; j++) 
       {
-        bTemp = bTab[i];
-        bTab[i] = bTab[i + 1];
-        bTab[i + 1] = bTemp;
+        for (i = 0; i < iFilterLen - j - 1; i++) 
+          {
+            if (bTab[i] > bTab[i + 1]) 
+              {
+                bTemp = bTab[i];
+                bTab[i] = bTab[i + 1];
+                bTab[i + 1] = bTemp;
+              }
+          }
       }
-    }
+      if ((iFilterLen & 1) > 0)
+        bTemp = bTab[(iFilterLen - 1) / 2];
+      else
+        bTemp = (bTab[iFilterLen / 2] + bTab[iFilterLen / 2 - 1]) / 2;
+    return bTemp;
   }
-  if ((iFilterLen & 1) > 0)
-    bTemp = bTab[(iFilterLen - 1) / 2];
-  else
-    bTemp = (bTab[iFilterLen / 2] + bTab[iFilterLen / 2 - 1]) / 2;
-  return bTemp;
-}
 
 void getTDSReading()
   {
-    float voltage_input = 3.3;  // analog reference voltage(Volt) of the ADC
-    int sample_count = 30;    // sum of sample point
-    int analogBuffer[sample_count]; // store the analog value in the array, read from ADC
-    int analogBufferTemp[sample_count];
-    int analogBufferIndex = 0,copyIndex = 0;
-    float averageVoltage = 0;
-
+    const float voltage_input = 3.3;  // analog reference voltage(Volt) of the ADC
+    const float adc_resolution = 4095;
+    
+    float average_voltage = 0;
     float temperature = 25;
+   
     // get current tempurature
     if (tempC == -100) temperature = 25;
     else temperature = tempC;
@@ -264,43 +294,82 @@ void getTDSReading()
       {
           printTimepoint = millis();
           for(copyIndex=0;copyIndex<sample_count;copyIndex++)
-          analogBufferTemp[copyIndex]= analogBuffer[copyIndex];
-          float medianRead = getMedianNum(analogBuffer,sample_count);
-          averageVoltage = getMedianNum(analogBufferTemp, sample_count) * (float)voltage_input / 4096.0; // ESP32 - 1-4096 - Ardurino mega 0-1023read the analog value more stable by the median filtering algorithm, and convert to voltage value
-          
-          //float calibrated_voltage = readADC_Cal(medianRead);
+            analogBufferTemp[copyIndex]= analogBuffer[copyIndex];
+
+          average_voltage = getMedianNum(analogBuffer,sample_count) * voltage_input / adc_resolution;
+          //average_voltage = getMedianNum(analogBuffer,sample_count);
+          //average_voltage = getMedianNum(analogBufferTemp, sample_count) * (float)voltage_input / 4096.0; // ESP32 - 1-4096 - Ardurino mega 0-1023read the analog value more stable by the median filtering algorithm, and convert to voltage value
+          float current_read = analogRead(tds_pin);
+          float current_voltage = current_read * voltage_input / adc_resolution;
+          float median_read = getMedianNum(analogBuffer,sample_count);
+          //float calibrated_voltage = readADC_Cal(average_voltage);
           //calibrated_voltage = calibrated_voltage/1000;
           
           float compensationCoefficient=1.0+0.02*(temperature-25.0);    //temperature compensation formula: fFinalResult(25^C) = fFinalResult(current)/(1.0+0.02*(fTP-25.0));
-          float compensationVolatge=averageVoltage/compensationCoefficient;  //temperature compensation
+          float compensationVolatge=average_voltage/compensationCoefficient;  //temperature compensation
           tds_value=(133.42*compensationVolatge*compensationVolatge*compensationVolatge - 255.86*compensationVolatge*compensationVolatge + 857.39*compensationVolatge)*0.5; //convert voltage value to tds value
-          
-          Serial.print("   voltage_input : ");
-          Serial.print(voltage_input);
-          Serial.print("   analogRead(tds_pin) : ");
+        /*
+          Serial.print("   analogRead: ");
           Serial.print(analogRead(tds_pin));
-          Serial.print("   Medianread : ");
-          Serial.print(medianRead);
-          Serial.print("   averageVoltage: ");
-          Serial.print(averageVoltage,2);
+          Serial.print("   median_read: ");
+          Serial.print(median_read);
+          Serial.print("   voltage : ");
+          Serial.print(current_voltage);
+          Serial.print("   average_voltage : ");
+          Serial.print(average_voltage,2);
           //Serial.print("   calibrated_voltage: ");
           //Serial.print(calibrated_voltage,2);
-          Serial.print("   TtdsValue: ");
-          Serial.print(tds_value, 0);
-          Serial.print("   Tempurature: ");
+          Serial.print("   Temp: ");
           Serial.print(temperature);
           Serial.print("   compensationVoltage: ");
           Serial.println(compensationVolatge);
-        
+          Serial.print("   TtdsValue: ");
+          Serial.println(tds_value, 0);
+      */
       }
     delay(0);
   }
   
+// ==================================================
+// ===========  PUMP CONTROL ========================
+// ==================================================
+int pump_seconds;
+int pump_minutes;
+bool pump_is_on;
+bool pump_previous_state;
+
+void pumpTimer()
+  {
+    if (digitalRead(pump_pin) == 1) pump_is_on = false;
+    else pump_is_on = true;
+
+    if(uptime_seconds < pump_init_delay*60)
+      {
+        pump_seconds = (pump_init_delay*60) - uptime_seconds;
+        pump_minutes = pump_seconds / 60;
+        if (pump_seconds <60) pump_minutes = 0;
+        else pump_seconds = pump_seconds - (pump_minutes * 60);
+      }
+
+        
+    //digitalWrite(pump_pin, LOW);
+    
+  }
+
+void printPumpData()
+  {
+    Serial.print("  Pump pin status : ");
+    Serial.println(digitalRead(pump_pin));
+    delay(2000);
+  }
+// ==================================================
+// ===========  HEATER CONTROL ========================
+// ==================================================
+
 
 // =================================================
 // ========== LCD DISPLAY ==========================
 // =================================================
-LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 
 void displaySplashscreen()// Display the splash screen
   {
@@ -331,66 +400,58 @@ void displayMainscreenstatic()// Display the parts that don't change
 
 void displayMainscreenData() // Display the data that changes on main screen
   {
-    // ---- Display tempurature
-    lcd.setCursor(5,0);
-    //getWaterTemp(); // will return -100 if there is an issue -  not needed variable tempC is already set
-    if (tempC == -100) lcd.print("(error)   ");
-    else
-      {
-        if (temp_in_c == true)
-          {
-            lcd.print(tempC);
-            lcd.print((char)223);
-            lcd.print("C");
-          }
-        else
-          {
-            lcd.print(tempF);
-            lcd.print((char)223);
-            lcd.print("F");
-          }
-      }
-    //----- Display TDS reading
-    lcd.setCursor(5,1);
-    if (tds_value > 1000) lcd.print("(error)  ");
-    else 
-    {
-      lcd.print(tds_value);
-      lcd.println("(PPM)    ");
-    }
-    // ---- Display pH Reading
     
-    lcd.setCursor(5,2);
-    lcd.print(ph_value); 
+    // ---- Display tempurature
+      lcd.setCursor(5,0);
+      //getWaterTemp(); // will return -100 if there is an issue -  not needed variable tempC is already set
+      if (tempC == -100) lcd.print("(error)   ");
+      else
+        {
+          if (temp_in_c == true)
+            {
+              lcd.print(tempC);
+              lcd.print((char)223);
+              lcd.print("C");
+            }
+          else
+            {
+              lcd.print(tempF);
+              lcd.print((char)223);
+              lcd.print("F");
+            }
+        }
+    //----- Display TDS reading
+      lcd.setCursor(5,1);
+      if (tds_value > 1000) lcd.print("(error)    ");
+      else 
+      {
+        lcd.print(tds_value);
+        lcd.print("(PPM)    ");
+      }
+
+    
+    // ---- Display pH Reading
+      lcd.setCursor(5,2);
+      lcd.print(ph_value); 
+
     //----Display  Pump status
-    lcd.setCursor(5,3);
-    if (digitalRead(pump_pin) == 0) lcd.print("ON     ");
-    else lcd.print("OFF    ");
+      lcd.setCursor(5,3);
+      if (digitalRead(pump_pin) == 0) lcd.print("ON -");
+      else lcd.print("OFF-");
+      lcd.setCursor(9,3);
+      lcd.print(pump_minutes);
+      lcd.print(":");
+      lcd.print(pump_seconds);
+      lcd.print(" ");
+
 
     // ---- Display time
-    lcd.setCursor(14,3);
-    //lcd.print("(Time)");
-    lcd.print(hour);
-    lcd.print(":");
-    lcd.print(minute);
-    lcd.print(":");
-    lcd.print(second);
-
-    
+      lcd.setCursor(15,3);
+      //lcd.print("(Time)");
+      displayTime();
+   
   }
 
-
-// ==================================================
-// ===========  PUMP CONTROL ========================
-// ==================================================
-int pump_init_delay_mills = pump_init_delay*1000;
-int pump_on_time_mills = pump_off_time *1000; // pump turns on after the time off delay
-int pump_off_time_mills = pump_off_time *1000; // pump turns off after teh time on delay
-
-
-// ==================================================
-// ===========  HEATER CONTROL ========================
-// ==================================================
 
 // ==================================================
 // ===========  MAIN SETUP ==========================
@@ -399,6 +460,8 @@ void setup(void)
   {
     Serial.begin(115200);// start serial port 115200
     Serial.println("Starting Hydroponics Automation Controler");
+    timer.run(); // Initiates SimpleTimer
+    
 
     // Initialize Sensors
     waterTempSensor.begin(); // initalize water temp sensor
@@ -407,10 +470,32 @@ void setup(void)
 
     // Set relay pins
     pinMode(pump_pin, OUTPUT);
+    Serial.print("setup pinmode: ");
+    Serial.println(digitalRead(pump_pin));
 
     //Initalize RTC
     initalize_rtc();
+    DateTime uptime = rtc.now();
+    DateTime statechange = rtc.now();
+    unix_statechange = statechange.unixtime();
+    unix_uptime = uptime.unixtime();
     
+    //getUptime();
+
+    //Initalize Pump
+    pinMode(pump_pin, OUTPUT);
+    digitalWrite(pump_pin,HIGH);
+    if (digitalRead(pump_pin) == 1 )
+      {
+        pump_is_on = false;
+        pump_previous_state = false;
+      } 
+    else
+      {
+        pump_is_on = true;
+        pump_previous_state = true;
+      }
+        
 
     // Prepare screen
     displaySplashscreen();
@@ -423,14 +508,22 @@ void setup(void)
 
 void loop(void)
 {
-  timer.run(); // Initiates SimpleTimer
-
   // Get readings
   getWaterTemp(); // sets tempC and tempF
   getTDSReading(); // sets tds_value
   getPH();
 
-  getTime();
+  // Time functions
+  DateTime now = rtc.now();
+  unix_now = now.unixtime();
+  uptime_seconds = unix_now - unix_uptime;
+  hour = now.hour();
+  minute = now.minute();
+  second = now.second();
+
+  //Start pump timer
+  pumpTimer();
+  printPumpData();
 
   displayMainscreenData();
 }
