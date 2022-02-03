@@ -42,6 +42,9 @@ uint32_t readADC_Cal(int ADC_Raw)
 // ========== RTC Functions ==============================
 // =======================================================
 char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+int hour;
+int minute;
+int second;
 
 void initalize_rtc()
   {
@@ -63,6 +66,13 @@ void initalize_rtc()
       } 
   }
 
+void getTime()
+  {
+    DateTime now = rtc.now();
+    hour = now.hour();
+    minute = now.minute();
+    second = now.second();
+  }
 void displayDate()
   {
     DateTime now = rtc.now();
@@ -291,6 +301,7 @@ void getTDSReading()
 // ========== LCD DISPLAY ==========================
 // =================================================
 LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);  // set the LCD address to 0x27 for a 16 chars and 2 line display
+
 void displaySplashscreen()// Display the splash screen
   {
     lcd.init(); // Initialize LCD
@@ -316,8 +327,6 @@ void displayMainscreenstatic()// Display the parts that don't change
     lcd.print("PH:");
     lcd.setCursor(0,3);
     lcd.print("Pump:");
-    lcd.setCursor(14,3);
-    lcd.print("(Time)");
   }
 
 void displayMainscreenData() // Display the data that changes on main screen
@@ -357,6 +366,16 @@ void displayMainscreenData() // Display the data that changes on main screen
     lcd.setCursor(5,3);
     if (digitalRead(pump_pin) == 0) lcd.print("ON     ");
     else lcd.print("OFF    ");
+
+    // ---- Display time
+    lcd.setCursor(14,3);
+    //lcd.print("(Time)");
+    lcd.print(hour);
+    lcd.print(":");
+    lcd.print(minute);
+    lcd.print(":");
+    lcd.print(second);
+
     
   }
 
@@ -411,9 +430,7 @@ void loop(void)
   getTDSReading(); // sets tds_value
   getPH();
 
-  displayDate
-  
-  ();
+  getTime();
 
   displayMainscreenData();
 }
