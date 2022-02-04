@@ -384,6 +384,17 @@ void printPumpData()
   }
 
 // =================================================
+// ========== DOSING PUMPS =========================
+// =================================================
+
+void testDosing()
+  {
+    digitalWrite(ph_up_pin, HIGH);
+    delay(5000);
+    digitalWrite(ph_up_pin, LOW);
+  }
+
+// =================================================
 // ========== LCD DISPLAY ==========================
 // =================================================
 
@@ -466,6 +477,18 @@ void setup(void)
     // Set initall pump ontime
     unix_last_statechange = unix_uptime;
     unix_next_statechange = unix_last_statechange + (pump_init_delay*60);
+
+    // Initalize dosing pumps
+    pinMode(ph_up_pin, OUTPUT);
+    pinMode(ph_down_pin, OUTPUT);
+    pinMode(nutrient_a_pin, OUTPUT);
+    pinMode(nutrient_b_pin, OUTPUT);
+
+    digitalWrite(ph_up_pin, LOW);
+    digitalWrite(ph_down_pin, LOW);
+    digitalWrite(nutrient_a_pin, LOW);
+    digitalWrite(nutrient_b_pin, LOW);
+
 
     // Prepare screen
     displaySplashscreen();
