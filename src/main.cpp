@@ -33,7 +33,7 @@ LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);  // set the LCD address to 0x2
 bool temp_in_c = true; // Tempurature defaults to C
 float pump_init_delay = .5; // Minutes - Initial time before starting the pump on startup
 float pump_on_time = .5; // Minutes - how long the pump stays on for
-float pump_off_time = 1; // Minutes -  how long the pump stays off for
+float pump_off_time = 1.5; // Minutes -  how long the pump stays off for
 
 // ----- SET PINS ------------------
 OneWire oneWire(16);// Tempurature pin - Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
@@ -328,8 +328,9 @@ void getTDSReading()
 // ==================================================
 // ===========  PUMP CONTROL ========================
 // ==================================================
-int pump_seconds;
+int pump_seconds; // current seconds left
 int pump_minutes;
+int current_timer; // total seconds of current timer
 
 void setPumpSeconds() // Change seconds into minutes and seconds
   { 
@@ -340,37 +341,42 @@ void setPumpSeconds() // Change seconds into minutes and seconds
 
 void pumpTimer()
   {
-    // check if its time to statechange
-    if(unix_next_statechange < unix_now) // if still in initiation time, count down
+    current_timer = unix_next_statechange - unix_last_statechange;
+    pump_seconds = unix_next_statechange - unix_now;
+    if(pump_seconds <=0 ) // timer is up
       {
-        pump_seconds = (pump_init_delay*60) - (unix_now - unix_last_statechange);
-        setPumpSeconds();
+        if (digitalRead(pump_pin) == 1) //pump was off, turn on
+          {
+            digitalWrite(pump_pin, LOW);
+            unix_last_statechange = unix_now;
+            current_timer = (int)pump_on_time*60;
+            unix_next_statechange = unix_last_statechange + (int)current_timer;
+            pump_seconds = current_timer;
+            Serial.print("pump was off, turning on. Current Timer:  ");
+            Serial.print(current_timer);
+            Serial.print("   pump_seconds : ");
+            Serial.println(pump_seconds);
+          }
+        else // pump was on, turn off
+          {
+            digitalWrite(pump_pin, HIGH);
+            unix_last_statechange = unix_now;
+            current_timer = (int)pump_off_time*60;
+            unix_next_statechange = unix_last_statechange + (int)current_timer;
+            pump_seconds = current_timer;
+            Serial.print("pump was ON, turning OFF. Current Timer:  ");
+            Serial.print(current_timer);
+            Serial.print("   pump_seconds : ");
+            Serial.println(pump_seconds);
+          }
       }
-      else // change state
-        {
-          if (digitalRead(pump_pin) == 1) //pump was off, turn on
-            {
-              digitalWrite(pump_pin, LOW);
-              unix_last_statechange = unix_now;
-              pump_seconds = pump_off_time*60;
-              unix_next_statechange = unix_now + pump_seconds;
-              setPumpSeconds();
-            }
-          else // pump was on, turn off
-            {
-              digitalWrite(pump_pin, HIGH);
-              unix_last_statechange = unix_now;
-              pump_seconds = pump_on_time*60;
-              unix_next_statechange = unix_now + pump_seconds;
-              setPumpSeconds();
-            }
-        }
+    setPumpSeconds();
   }
 
 void displayPumpStatus()
   {
-    if (digitalRead(pump_pin) == 0) lcd.print("ON -");
-      else lcd.print("OFF-");
+    if (digitalRead(pump_pin) == 0) lcd.print("ON ");
+      else lcd.print("OFF");
     lcd.setCursor(9,3);
     lcd.print(pump_minutes);
     printDigits(pump_seconds); // use time fuction to print 2 digit seconds
@@ -378,9 +384,19 @@ void displayPumpStatus()
 
 void printPumpData()
   {
-    Serial.print("  Pump pin status : ");
-    Serial.println(digitalRead(pump_pin));
-    delay(2000);
+    Serial.print(" Pump pin status : ");
+    Serial.print(digitalRead(pump_pin));
+    Serial.print("    last change : ");
+    Serial.print(unix_last_statechange);
+    Serial.print ("    next change : ");
+    Serial.print(unix_next_statechange);
+    Serial.print ("  Current timer : ");
+    Serial.print(current_timer);
+    Serial.print("    seconds : ");
+    Serial.print(pump_seconds);
+    Serial.print ("    minutes : ");
+    Serial.println(pump_minutes);
+    delay(1000);
   }
 
 // =================================================
@@ -469,14 +485,28 @@ void setup(void)
     initalize_rtc();
     DateTime uptime = rtc.now();
     unix_uptime = uptime.unixtime();
+    DateTime now = rtc.now();
     
     //Initalize Pump
     pinMode(pump_pin, OUTPUT);
     digitalWrite(pump_pin,HIGH);
 
     // Set initall pump ontime
-    unix_last_statechange = unix_uptime;
-    unix_next_statechange = unix_last_statechange + (pump_init_delay*60);
+    unix_last_statechange = now.unixtime();
+    unix_next_statechange = unix_last_statechange + (int)(pump_init_delay*60);
+    current_timer = unix_next_statechange - unix_last_statechange;
+    pump_seconds = current_timer;
+    
+    Serial.print("unixuptime : ");
+    Serial.print(unix_uptime);
+    Serial.print("   last state set : ");
+    Serial.print(unix_last_statechange);
+    Serial.print("   next state set : ");
+    Serial.print(unix_next_statechange);
+    Serial.print("   current timer : ");
+    Serial.print(current_timer);
+    Serial.print("    pumpt_init_delay : ");
+    Serial.println((int)(pump_init_delay*60));
 
     // Initalize dosing pumps
     pinMode(ph_up_pin, OUTPUT);
@@ -489,6 +519,7 @@ void setup(void)
     digitalWrite(nutrient_a_pin, LOW);
     digitalWrite(nutrient_b_pin, LOW);
 
+    printPumpData();
 
     // Prepare screen
     displaySplashscreen();
