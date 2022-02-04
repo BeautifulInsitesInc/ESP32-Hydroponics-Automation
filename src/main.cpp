@@ -39,8 +39,15 @@ float pump_off_time = 1; // Minutes -  how long the pump stays off for
 OneWire oneWire(16);// Tempurature pin - Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
 const int tds_pin = 34; // TDS sensor pin - try 13 if 26 doesnt work
 const int ph_pin = 35; // pH sensor pin
+
 const int pump_pin = 32; // pump relay
 const int heater_pin = 33; // heater relay
+
+const int ph_up_pin = 25; //pH up dosing pump
+const int ph_down_pin = 26; // pH down dosing pump
+
+const int nutrient_a_pin = 19; // nutrient part A dosing pump
+const int nutrient_b_pin = 18; // nutrient part B dosing pump
 
 // *************** CALIBRATION FUNCTION ******************
 // To calibrate actual votage read at pin to the esp32 reading
