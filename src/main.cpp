@@ -12,21 +12,22 @@ RTC_DS3231 rtc;
 SimpleTimer timer;
 
 // ----- GLOBAL VARIABLES --------
-int uptime_seconds;
-DateTime uptime;
-DateTime now;
-DateTime statechange;
-long int unix_now;
-long int unix_uptime;
-long int unix_statechange;
 
+DateTime uptime;
+long int unix_uptime;
+int uptime_seconds;
+DateTime now;
+long int unix_now;
+DateTime last_statechange;
+long int unix_last_statechange;
+int statechange_seconds;
+long int unix_next_statechange;
 
 
 // ----- LCD SETTINGS --------
 int lcdColumns = 20; // LCD Columns
 int lcdRows = 4; // LCD Rows
 LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);  // set the LCD address to 0x27 for a 16 chars and 2 line display
-
 
 // ----- DEFAULT SETTINGS ------
 bool temp_in_c = true; // Tempurature defaults to C
@@ -63,7 +64,6 @@ int up_minute;
 int up_hour;
 int up_day;
 
-
 void initalize_rtc()
   {
     if (! rtc.begin()) 
@@ -81,8 +81,7 @@ void initalize_rtc()
         // This line sets the RTC with an explicit date & time, for example to set
         // January 21, 2014 at 3am you would call:
         // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
-      } 
-    
+      }  
   }
 
 void getUptime()
@@ -92,6 +91,7 @@ void getUptime()
     up_minute = uptime.minute();
     up_second = uptime.second();
   }
+
 void printDigits(int digit) // To alwasy display time in 2 digits
   {
       lcd.print(":");
@@ -101,9 +101,8 @@ void printDigits(int digit) // To alwasy display time in 2 digits
         }
         lcd.print(digit);
   }
-  void displayTime()  // Displays time in proper format on
+void displayTime()  // Displays time in proper format on
   {
-    
     lcd.print(hour);
     printDigits(minute);
     //printDigits(second);
@@ -112,7 +111,6 @@ void printDigits(int digit) // To alwasy display time in 2 digits
 void printDate() 
   {
     DateTime now = rtc.now();
-
     Serial.print(now.year(), DEC);
     Serial.print('/');
     Serial.print(now.month(), DEC);
@@ -126,17 +124,8 @@ void printDate()
     Serial.print(now.minute(), DEC);
     Serial.print(':');
     Serial.print(now.second(), DEC);
-    Serial.print(" minutes up : ");
-    Serial.print(minute - up_minute);
-    Serial.print(" |     seconds up : ");
-    Serial.print(second - up_second);
-
-
-
     delay(2000);
     Serial.println();
-
-    
 
     //Serial.print(" since midnight 1/1/1970 = ");
     //Serial.print(now.unixtime());
@@ -148,7 +137,6 @@ void printDate()
       Serial.print(future.year(), DEC);
       Serial.print('/');
     */
-
   }
 
 // =======================================================
@@ -335,25 +323,50 @@ void getTDSReading()
 // ==================================================
 int pump_seconds;
 int pump_minutes;
-bool pump_is_on;
-bool pump_previous_state;
+
+void setPumpSeconds() // Change seconds into minutes and seconds
+  { 
+    pump_minutes = pump_seconds / 60;
+    if (pump_seconds < 60) pump_minutes = 0;
+    else pump_seconds = pump_seconds - (pump_minutes * 60);
+  }
 
 void pumpTimer()
   {
-    if (digitalRead(pump_pin) == 1) pump_is_on = false;
-    else pump_is_on = true;
-
-    if(uptime_seconds < pump_init_delay*60)
+    // check if its time to statechange
+    if(unix_next_statechange < unix_now) // if still in initiation time, count down
       {
-        pump_seconds = (pump_init_delay*60) - uptime_seconds;
-        pump_minutes = pump_seconds / 60;
-        if (pump_seconds <60) pump_minutes = 0;
-        else pump_seconds = pump_seconds - (pump_minutes * 60);
+        pump_seconds = (pump_init_delay*60) - (unix_now - unix_last_statechange);
+        setPumpSeconds();
       }
+      else // change state
+        {
+          if (digitalRead(pump_pin) == 1) //pump was off, turn on
+            {
+              digitalWrite(pump_pin, LOW);
+              unix_last_statechange = unix_now;
+              pump_seconds = pump_off_time*60;
+              unix_next_statechange = unix_now + pump_seconds;
+              setPumpSeconds();
+            }
+          else // pump was on, turn off
+            {
+              digitalWrite(pump_pin, HIGH);
+              unix_last_statechange = unix_now;
+              pump_seconds = pump_on_time*60;
+              unix_next_statechange = unix_now + pump_seconds;
+              setPumpSeconds();
+            }
+        }
+  }
 
-        
-    //digitalWrite(pump_pin, LOW);
-    
+void displayPumpStatus()
+  {
+    if (digitalRead(pump_pin) == 0) lcd.print("ON -");
+      else lcd.print("OFF-");
+    lcd.setCursor(9,3);
+    lcd.print(pump_minutes);
+    printDigits(pump_seconds); // use time fuction to print 2 digit seconds
   }
 
 void printPumpData()
@@ -362,10 +375,6 @@ void printPumpData()
     Serial.println(digitalRead(pump_pin));
     delay(2000);
   }
-// ==================================================
-// ===========  HEATER CONTROL ========================
-// ==================================================
-
 
 // =================================================
 // ========== LCD DISPLAY ==========================
@@ -400,58 +409,29 @@ void displayMainscreenstatic()// Display the parts that don't change
 
 void displayMainscreenData() // Display the data that changes on main screen
   {
-    
-    // ---- Display tempurature
+    // Display tempurature
       lcd.setCursor(5,0);
       //getWaterTemp(); // will return -100 if there is an issue -  not needed variable tempC is already set
       if (tempC == -100) lcd.print("(error)   ");
-      else
-        {
-          if (temp_in_c == true)
-            {
-              lcd.print(tempC);
-              lcd.print((char)223);
-              lcd.print("C");
-            }
-          else
-            {
-              lcd.print(tempF);
-              lcd.print((char)223);
-              lcd.print("F");
-            }
-        }
-    //----- Display TDS reading
+      else {if (temp_in_c == true) {lcd.print(tempC);lcd.print((char)223);lcd.print("C"); }
+            else {lcd.print(tempF); lcd.print((char)223); lcd.print("F");}}
+
+    // Display TDS reading
       lcd.setCursor(5,1);
       if (tds_value > 1000) lcd.print("(error)    ");
-      else 
-      {
-        lcd.print(tds_value);
-        lcd.print("(PPM)    ");
-      }
-
+      else {lcd.print(tds_value);lcd.print("(PPM)    ");}
     
     // ---- Display pH Reading
-      lcd.setCursor(5,2);
-      lcd.print(ph_value); 
+      lcd.setCursor(5,2);lcd.print(ph_value); 
 
     //----Display  Pump status
       lcd.setCursor(5,3);
-      if (digitalRead(pump_pin) == 0) lcd.print("ON -");
-      else lcd.print("OFF-");
-      lcd.setCursor(9,3);
-      lcd.print(pump_minutes);
-      lcd.print(":");
-      lcd.print(pump_seconds);
-      lcd.print(" ");
-
+      displayPumpStatus();
 
     // ---- Display time
       lcd.setCursor(15,3);
-      //lcd.print("(Time)");
       displayTime();
-   
   }
-
 
 // ==================================================
 // ===========  MAIN SETUP ==========================
@@ -461,41 +441,24 @@ void setup(void)
     Serial.begin(115200);// start serial port 115200
     Serial.println("Starting Hydroponics Automation Controler");
     timer.run(); // Initiates SimpleTimer
-    
 
     // Initialize Sensors
     waterTempSensor.begin(); // initalize water temp sensor
     pinMode(tds_pin,INPUT); // setup TDS sensor pin
     //ph.begin(); // starts the ph api 
-
-    // Set relay pins
-    pinMode(pump_pin, OUTPUT);
-    Serial.print("setup pinmode: ");
-    Serial.println(digitalRead(pump_pin));
-
+  
     //Initalize RTC
     initalize_rtc();
     DateTime uptime = rtc.now();
-    DateTime statechange = rtc.now();
-    unix_statechange = statechange.unixtime();
     unix_uptime = uptime.unixtime();
     
-    //getUptime();
-
     //Initalize Pump
     pinMode(pump_pin, OUTPUT);
     digitalWrite(pump_pin,HIGH);
-    if (digitalRead(pump_pin) == 1 )
-      {
-        pump_is_on = false;
-        pump_previous_state = false;
-      } 
-    else
-      {
-        pump_is_on = true;
-        pump_previous_state = true;
-      }
-        
+
+    // Set initall pump ontime
+    unix_last_statechange = unix_uptime;
+    unix_next_statechange = unix_last_statechange + (pump_init_delay*60);
 
     // Prepare screen
     displaySplashscreen();
@@ -516,12 +479,11 @@ void loop(void)
   // Time functions
   DateTime now = rtc.now();
   unix_now = now.unixtime();
-  uptime_seconds = unix_now - unix_uptime;
   hour = now.hour();
   minute = now.minute();
   second = now.second();
 
-  //Start pump timer
+  // Pump Timer
   pumpTimer();
   printPumpData();
 
