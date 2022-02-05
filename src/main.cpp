@@ -31,9 +31,17 @@ LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);  // set the LCD address to 0x2
 
 // ----- DEFAULT SETTINGS ------
 bool temp_in_c = true; // Tempurature defaults to C
+
+bool twelve_hour_clock = true;
+
 float pump_init_delay = .5; // Minutes - Initial time before starting the pump on startup
 float pump_on_time = .5; // Minutes - how long the pump stays on for
 float pump_off_time = 1.5; // Minutes -  how long the pump stays off for
+
+float ph_set_level = 6.2;
+int ph_dose_period = 60;// Does period in minutes
+
+float ppm_set_level = 400;
 
 // ----- SET PINS ------------------
 OneWire oneWire(16);// Tempurature pin - Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
@@ -66,6 +74,7 @@ char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursd
 int hour;
 int minute;
 int second;
+String am_pm;
 int up_second;
 int up_minute;
 int up_hour;
@@ -110,8 +119,18 @@ void printDigits(int digit) // To alwasy display time in 2 digits
   }
 void displayTime()  // Displays time in proper format on
   {
+    if (twelve_hour_clock == true)
+      {
+        if (hour > 12) 
+          {
+            am_pm = "PM";
+            hour = hour - 12;
+          }
+        else am_pm = "AM"
+      }
     lcd.print(hour);
     printDigits(minute);
+    if (twelve_hour_clock == true) lcd.print(am_pm);
     //printDigits(second);
   }
 
@@ -402,14 +421,28 @@ void printPumpData()
 // =================================================
 // ========== DOSING PUMPS =========================
 // =================================================
+long int ph_next_dose;
 
-void testDosing()
+
+
+void phDosing()
+  {
+    if (ph_value < ph_set_level)
+      {
+        digitalWrite(ph_pin, HIGH)
+      }
+  }
+
+void nutrientDosing()
+  {
+    
+  }
+void phTest()
   {
     digitalWrite(ph_up_pin, HIGH);
     delay(5000);
     digitalWrite(ph_up_pin, LOW);
   }
-
 // =================================================
 // ========== LCD DISPLAY ==========================
 // =================================================
@@ -463,7 +496,7 @@ void displayMainscreenData() // Display the data that changes on main screen
       displayPumpStatus();
 
     // ---- Display time
-      lcd.setCursor(15,3);
+      lcd.setCursor(13,0);
       displayTime();
   }
 
@@ -547,6 +580,13 @@ void loop(void)
   // Pump Timer
   pumpTimer();
   printPumpData();
+
+  // pH Balance
+  phTest();
+  //phDosing();
+
+  //Nutrient Balance
+  nutrientDosing();
 
   displayMainscreenData();
 }
