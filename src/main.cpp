@@ -6,6 +6,7 @@
 #include <esp_adc_cal.h>
 #include <RTClib.h>
 #include <SPI.h>
+#include <millisDelay.h>
 
 // ---- Classes --------------
 RTC_DS3231 rtc; 
@@ -23,7 +24,6 @@ long int unix_last_statechange;
 int statechange_seconds;
 long int unix_next_statechange;
 
-
 // ----- LCD SETTINGS --------
 int lcdColumns = 20; // LCD Columns
 int lcdRows = 4; // LCD Rows
@@ -31,17 +31,19 @@ LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);  // set the LCD address to 0x2
 
 // ----- DEFAULT SETTINGS ------
 bool temp_in_c = true; // Tempurature defaults to C
+bool twelve_hour_clock = true; // Clock format
 
-bool twelve_hour_clock = true;
+float pump_init_delay = 1; // Minutes - Initial time before starting the pump on startup
+float pump_on_time = 2; // Minutes - how long the pump stays on for
+float pump_off_time = 10; // Minutes -  how long the pump stays off for
 
-float pump_init_delay = .5; // Minutes - Initial time before starting the pump on startup
-float pump_on_time = .5; // Minutes - how long the pump stays on for
-float pump_off_time = 1.5; // Minutes -  how long the pump stays off for
+float ph_set_level = 6.2; // Desired pH level
+int ph_dose_period = 60;// period between readings/doses in minutes
+int ph_dose_amount = 3; // Time Dosing pump runs per dose in seconds;
 
-float ph_set_level = 6.2;
-int ph_dose_period = 60;// Does period in minutes
-
-float ppm_set_level = 400;
+float ppm_set_level = 400; // Desired nutrient levle
+int ppm_dose_period = 60; //period btween readings/doses in minutes
+int ppm_dose_amount = 3; // Time Dosing pump runs per dose
 
 // ----- SET PINS ------------------
 OneWire oneWire(16);// Tempurature pin - Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
@@ -358,6 +360,16 @@ void setPumpSeconds() // Change seconds into minutes and seconds
     else pump_seconds = pump_seconds - (pump_minutes * 60);
   }
 
+void resetPumpTimer() // resets the statechanges to now
+  {
+    unix_last_statechange = unix_now;
+    unix_next_statechange = unix_last_statechange + (int)current_timer;
+    pump_seconds = current_timer;
+    Serial.print(current_timer);
+    Serial.print("   pump_seconds : ");
+    Serial.println(pump_seconds);
+  }
+
 void pumpTimer()
   {
     current_timer = unix_next_statechange - unix_last_statechange;
@@ -367,26 +379,17 @@ void pumpTimer()
         if (digitalRead(pump_pin) == 1) //pump was off, turn on
           {
             digitalWrite(pump_pin, LOW);
-            unix_last_statechange = unix_now;
             current_timer = (int)pump_on_time*60;
-            unix_next_statechange = unix_last_statechange + (int)current_timer;
-            pump_seconds = current_timer;
             Serial.print("pump was off, turning on. Current Timer:  ");
-            Serial.print(current_timer);
-            Serial.print("   pump_seconds : ");
-            Serial.println(pump_seconds);
+            resetPumpTimer();
           }
         else // pump was on, turn off
           {
             digitalWrite(pump_pin, HIGH);
-            unix_last_statechange = unix_now;
             current_timer = (int)pump_off_time*60;
             unix_next_statechange = unix_last_statechange + (int)current_timer;
-            pump_seconds = current_timer;
             Serial.print("pump was ON, turning OFF. Current Timer:  ");
-            Serial.print(current_timer);
-            Serial.print("   pump_seconds : ");
-            Serial.println(pump_seconds);
+            resetPumpTimer();
           }
       }
     setPumpSeconds();
@@ -401,35 +404,42 @@ void displayPumpStatus()
     printDigits(pump_seconds); // use time fuction to print 2 digit seconds
   }
 
-void printPumpData()
-  {
-    Serial.print(" Pump pin status : ");
-    Serial.print(digitalRead(pump_pin));
-    Serial.print("    last change : ");
-    Serial.print(unix_last_statechange);
-    Serial.print ("    next change : ");
-    Serial.print(unix_next_statechange);
-    Serial.print ("  Current timer : ");
-    Serial.print(current_timer);
-    Serial.print("    seconds : ");
-    Serial.print(pump_seconds);
-    Serial.print ("    minutes : ");
-    Serial.println(pump_minutes);
-    delay(1000);
-  }
+  void pumpTest()
+    {
+      // change pump variables for demonstration or test
+      float pump_init_delay = .5; // Minutes - Initial time before starting the pump on startup
+      float pump_on_time = .5; // Minutes - how long the pump stays on for
+      float pump_off_time = 1.5;
+
+      pumpTimer();
+
+      // Print pump data
+      Serial.print(" Pump pin status : ");
+      Serial.print(digitalRead(pump_pin));
+      Serial.print("    last change : ");
+      Serial.print(unix_last_statechange);
+      Serial.print ("    next change : ");
+      Serial.print(unix_next_statechange);
+      Serial.print ("  Current timer : ");
+      Serial.print(current_timer);
+      Serial.print("    seconds : ");
+      Serial.print(pump_seconds);
+      Serial.print ("    minutes : ");
+      Serial.println(pump_minutes);
+      //delay(1000);
+    }
 
 // =================================================
 // ========== DOSING PUMPS =========================
 // =================================================
 long int ph_next_dose;
-
-
+bool ph_adjustment_period = false;
 
 void phDosing()
   {
-    if (ph_value < ph_set_level)
+    if (ph_value < ph_set_level) //pH is low add a dose pH up
       {
-        digitalWrite(ph_pin, HIGH)
+        digitalWrite(ph_pin, HIGH);
       }
   }
 
@@ -552,8 +562,6 @@ void setup(void)
     digitalWrite(nutrient_a_pin, LOW);
     digitalWrite(nutrient_b_pin, LOW);
 
-    printPumpData();
-
     // Prepare screen
     displaySplashscreen();
     displayMainscreenstatic();
@@ -578,15 +586,18 @@ void loop(void)
   second = now.second();
 
   // Pump Timer
-  pumpTimer();
-  printPumpData();
-
+  if (ph_adjustment_period == false)
+    {
+      //pumpTimer(); // uncomment this to turn on functioning pump timer
+      pumpTest();
+    }
+  
   // pH Balance
-  phTest();
-  //phDosing();
+  phDosing();
+    
 
   //Nutrient Balance
-  nutrientDosing();
+  //nutrientDosing();
 
   displayMainscreenData();
 }
