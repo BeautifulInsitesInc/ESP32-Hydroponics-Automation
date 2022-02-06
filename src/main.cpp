@@ -38,12 +38,12 @@ float pump_on_time = 2; // Minutes - how long the pump stays on for
 float pump_off_time = 10; // Minutes -  how long the pump stays off for
 
 float ph_set_level = 6.2; // Desired pH level
-int ph_dose_period = 60;// period between readings/doses in minutes
-int ph_dose_amount = 3; // Time Dosing pump runs per dose in seconds;
+int ph_delay_minutes = 60;// period between readings/doses in minutes
+float ph_dose_seconds = 3; // Time Dosing pump runs per dose in seconds;
 
 float ppm_set_level = 400; // Desired nutrient levle
-int ppm_dose_period = 60; //period btween readings/doses in minutes
-int ppm_dose_amount = 3; // Time Dosing pump runs per dose
+int ppm_delay_seconds = 60; //period btween readings/doses in minutes
+float ppm_dose_seconds = 3; // Time Dosing pump runs per dose
 
 // ----- SET PINS ------------------
 OneWire oneWire(16);// Tempurature pin - Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
@@ -432,14 +432,31 @@ void displayPumpStatus()
 // =================================================
 // ========== DOSING PUMPS =========================
 // =================================================
-long int ph_next_dose;
-bool ph_adjustment_period = false;
+bool ph_up_dose = false; // is it ph up or down?
+bool ph_dose_cycle = false; // True if dose is in waiting period
+
+millisDelay phDoseTimer; // the dosing amount time
+millisDelay phDoseDelay; // the delay between doses
+
+void phStartDosing(motor_pin)
+  {
+    digitalWrite(motor_pin, HIGH); // turn on dosing pump
+    phDoseTimer.start(ph_dose_seconds*1000); // start the pump
+    phDoseDelay.start(ph_delay_minuts * 60 *1000) // start the time before another dose can be administered
+  }
 
 void phDosing()
   {
-    if (ph_value < ph_set_level) //pH is low add a dose pH up
+    if (phDoseTimer.justFinished())
       {
-        digitalWrite(ph_pin, HIGH);
+
+      }
+    if (ph_value < ph_set_level && phDoseDelay.isRunning() == false ) //pH is low add a dose pH up
+      {
+        ph_up_dose = true;
+        phStartDosing(ph_up_pin); // start the dose pump 
+        phDoseDelay
+
       }
   }
 
@@ -594,6 +611,7 @@ void loop(void)
   
   // pH Balance
   phDosing();
+  phCheck
     
 
   //Nutrient Balance
