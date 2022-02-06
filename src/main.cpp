@@ -6,7 +6,7 @@
 #include <esp_adc_cal.h>
 #include <RTClib.h>
 #include <SPI.h>
-#include <millisDelay.h>
+#include <millisDelay.h> // part of the SafeString Library
 
 // ---- Classes --------------
 RTC_DS3231 rtc; 
@@ -15,14 +15,10 @@ SimpleTimer timer;
 // ----- GLOBAL VARIABLES --------
 
 DateTime uptime;
-long int unix_uptime;
-int uptime_seconds;
+unsigned long unix_uptime;
+unsigned long uptime_seconds;
 DateTime now;
-long int unix_now;
-DateTime last_statechange;
-long int unix_last_statechange;
-int statechange_seconds;
-long int unix_next_statechange;
+unsigned long unix_now;
 
 // ----- LCD SETTINGS --------
 int lcdColumns = 20; // LCD Columns
@@ -38,8 +34,9 @@ float pump_on_time = 2; // Minutes - how long the pump stays on for
 float pump_off_time = 10; // Minutes -  how long the pump stays off for
 
 float ph_set_level = 6.2; // Desired pH level
-int ph_delay_minutes = 60;// period between readings/doses in minutes
+int ph_delay_minutes = 60;// miniumum period allowed between doses in minutes
 float ph_dose_seconds = 3; // Time Dosing pump runs per dose in seconds;
+float ph_tolerance = 0.2; // how much can ph go from target before adjusting
 
 float ppm_set_level = 400; // Desired nutrient levle
 int ppm_delay_seconds = 60; //period btween readings/doses in minutes
@@ -73,14 +70,27 @@ uint32_t readADC_Cal(int ADC_Raw)
 // ========== RTC Functions ==============================
 // =======================================================
 char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
-int hour;
+bool display_seconds = false;
+
+int year;
+int month;
+int day;
+int dayofweek;
+int hour; // 24 hour clock
+int twelvehour; // hour in 12 hour format
+bool ispm; // yes = PM
+String am_pm;
 int minute;
 int second;
-String am_pm;
-int up_second;
-int up_minute;
-int up_hour;
+
+int up_year;
+int up_month;
 int up_day;
+int up_hour;
+int up_12hour;
+bool up_ispm;
+int up_minute;
+int up_second;
 
 void initalize_rtc()
   {
@@ -102,12 +112,32 @@ void initalize_rtc()
       }  
   }
 
-void getUptime()
+void setUptime()
   {
+    DateTime uptime = rtc.now();
+    up_year = uptime.year();
+    up_month = uptime.month();
     up_day = uptime.day();
     up_hour = uptime.hour();
+    up_12hour = uptime.twelveHour();
+    up_ispm = uptime.isPM();
     up_minute = uptime.minute();
     up_second = uptime.second();
+    unix_uptime = uptime.unixtime();
+  }
+
+void setTimeVariables()
+  {
+    DateTime now = rtc.now();
+    year = now.year();
+    month = now.month();
+    day = now.day();
+    dayofweek = now.dayOfTheWeek();
+    hour = now.hour();
+    twelvehour = now.twelveHour();
+    ispm =now.isPM();
+    minute = now.minute();
+    second = now.second();
   }
 
 void printDigits(int digit) // To alwasy display time in 2 digits
@@ -119,21 +149,18 @@ void printDigits(int digit) // To alwasy display time in 2 digits
         }
         lcd.print(digit);
   }
-void displayTime()  // Displays time in proper format on
+void displayTime()  // Displays time in proper format
   {
     if (twelve_hour_clock == true)
       {
-        if (hour > 12) 
-          {
-            am_pm = "PM";
-            hour = hour - 12;
-          }
-        else am_pm = "AM"
+        hour = twelvehour;
+        if (ispm == true) am_pm = "PM";
+        else am_pm = "AM";
       }
     lcd.print(hour);
     printDigits(minute);
     if (twelve_hour_clock == true) lcd.print(am_pm);
-    //printDigits(second);
+    if (display_seconds == true) printDigits(second);
   }
 
 void printDate() 
@@ -312,9 +339,7 @@ void getTDSReading()
           for(copyIndex=0;copyIndex<sample_count;copyIndex++)
             analogBufferTemp[copyIndex]= analogBuffer[copyIndex];
 
-          average_voltage = getMedianNum(analogBuffer,sample_count) * voltage_input / adc_resolution;
-          //average_voltage = getMedianNum(analogBuffer,sample_count);
-          //average_voltage = getMedianNum(analogBufferTemp, sample_count) * (float)voltage_input / 4096.0; // ESP32 - 1-4096 - Ardurino mega 0-1023read the analog value more stable by the median filtering algorithm, and convert to voltage value
+          average_voltage = getMedianNum(analogBuffer,sample_count) * voltage_input / adc_resolution;// ESP32 - 1-4096 - Ardurino mega 0-1023read the analog value more stable by the median filtering algorithm, and convert to voltage value
           float current_read = analogRead(tds_pin);
           float current_voltage = current_read * voltage_input / adc_resolution;
           float median_read = getMedianNum(analogBuffer,sample_count);
@@ -341,17 +366,70 @@ void getTDSReading()
           Serial.println(compensationVolatge);
           Serial.print("   TtdsValue: ");
           Serial.println(tds_value, 0);
+          delay(0);
       */
       }
-    delay(0);
   }
-  
+
+// =================================================
+// ========== DOSING PUMPS =========================
+// =================================================
+//bool ph_up_dose = false; // is it ph up or down?
+int ph_dose_pin;
+
+millisDelay phDoseTimer; // the dosing amount time
+millisDelay phDoseDelay; // the delay between doses - don't allow another dose before this
+
+void phDose(ph_dose_pin) // turns on the approiate ph dosing pump
+  {
+    if (phDoseDelay.isRunning() == false)
+      {
+        digitalWrite(motor_pin, HIGH); // turn on dosing pump
+        phDoseTimer.start(ph_dose_seconds*1000); // start the pump
+        ph_dose_pin = motor_pin;
+        phDoseDelay.start(ph_delay_minutes * 60 * 1000); // start delay before next dose is allowed
+      }
+    else
+    {
+      Serial.print("Dose delay timer is still on");
+    }
+  }
+
+void phBalanceCheck() //this is to be called from pump turning on function
+  {
+    if (ph_value < ph_set_level - ph_tolerance) phDose(ph_up_pin); // ph is low start ph up pump
+    if (ph_value > ph_set_level + ph_tolerance) phDose(ph_down_pin); // ph is high turn on lowering pump
+  }
+void phDosingTimer()
+  {
+    if (phDoseTimer.justFinished()) // dosing is done, turn off, and start delay before next dose is allowed
+      {
+        digitalWrite(ph_dose_pin, LOW); // turn off dose motor
+      }
+  }
+
+void nutrientDosing()
+  {
+    
+  }
+void phTest()
+  {
+    digitalWrite(ph_up_pin, HIGH);
+    delay(3000);
+    digitalWrite(ph_up_pin, LOW);
+    delay(5000);
+    digitalWrite(ph_down_pin, HIGH);
+    delay(3000);
+    digitalWrite(ph_down_pin, LOW);
+  }
+
 // ==================================================
 // ===========  PUMP CONTROL ========================
 // ==================================================
 int pump_seconds; // current seconds left
 int pump_minutes;
-int current_timer; // total seconds of current timer
+millisDelay pumpOnTimer;
+millisDelay pumpOffTimer;
 
 void setPumpSeconds() // Change seconds into minutes and seconds
   { 
@@ -360,36 +438,27 @@ void setPumpSeconds() // Change seconds into minutes and seconds
     else pump_seconds = pump_seconds - (pump_minutes * 60);
   }
 
-void resetPumpTimer() // resets the statechanges to now
-  {
-    unix_last_statechange = unix_now;
-    unix_next_statechange = unix_last_statechange + (int)current_timer;
-    pump_seconds = current_timer;
-    Serial.print(current_timer);
-    Serial.print("   pump_seconds : ");
-    Serial.println(pump_seconds);
-  }
-
 void pumpTimer()
   {
-    current_timer = unix_next_statechange - unix_last_statechange;
-    pump_seconds = unix_next_statechange - unix_now;
-    if(pump_seconds <=0 ) // timer is up
+    if (digitalRead(pump_pin) == 1 ) // pump is off, check timer
       {
-        if (digitalRead(pump_pin) == 1) //pump was off, turn on
+        pump_seconds = pumpOffTimer.remaining() / 1000;
+        if (pumpOffTimer.justFinished()) // off delay is done, start pump
           {
-            digitalWrite(pump_pin, LOW);
-            current_timer = (int)pump_on_time*60;
-            Serial.print("pump was off, turning on. Current Timer:  ");
-            resetPumpTimer();
+            digitalWrite(pump_pin, LOW); // turn on pump
+            pumpOnTimer.start(pump_on_time * 60 * 1000);
+            pump_seconds = pumpOnTimer.remaining() /1000;
+            phBalanceCheck(); // check to see if ph dose is needed
           }
-        else // pump was on, turn off
+      }
+    else // pump is on, check timing
+      {
+        pump_seconds = pumpOnTimer.remaining();
+        if (pumpOnTimer.justFinished()) // on time is done turn off
           {
-            digitalWrite(pump_pin, HIGH);
-            current_timer = (int)pump_off_time*60;
-            unix_next_statechange = unix_last_statechange + (int)current_timer;
-            Serial.print("pump was ON, turning OFF. Current Timer:  ");
-            resetPumpTimer();
+            digitalWrite(pump_pin, HIGH); // turn off pump
+            pumpOffTimer.start(pump_off_time * 60 * 1000);
+            pump_seconds = pumpOnTimer.remaining() /1000;
           }
       }
     setPumpSeconds();
@@ -404,72 +473,25 @@ void displayPumpStatus()
     printDigits(pump_seconds); // use time fuction to print 2 digit seconds
   }
 
-  void pumpTest()
-    {
-      // change pump variables for demonstration or test
-      float pump_init_delay = .5; // Minutes - Initial time before starting the pump on startup
-      float pump_on_time = .5; // Minutes - how long the pump stays on for
-      float pump_off_time = 1.5;
-
-      pumpTimer();
-
-      // Print pump data
-      Serial.print(" Pump pin status : ");
-      Serial.print(digitalRead(pump_pin));
-      Serial.print("    last change : ");
-      Serial.print(unix_last_statechange);
-      Serial.print ("    next change : ");
-      Serial.print(unix_next_statechange);
-      Serial.print ("  Current timer : ");
-      Serial.print(current_timer);
-      Serial.print("    seconds : ");
-      Serial.print(pump_seconds);
-      Serial.print ("    minutes : ");
-      Serial.println(pump_minutes);
-      //delay(1000);
-    }
-
-// =================================================
-// ========== DOSING PUMPS =========================
-// =================================================
-bool ph_up_dose = false; // is it ph up or down?
-bool ph_dose_cycle = false; // True if dose is in waiting period
-
-millisDelay phDoseTimer; // the dosing amount time
-millisDelay phDoseDelay; // the delay between doses
-
-void phStartDosing(motor_pin)
+void pumpTest()
   {
-    digitalWrite(motor_pin, HIGH); // turn on dosing pump
-    phDoseTimer.start(ph_dose_seconds*1000); // start the pump
-    phDoseDelay.start(ph_delay_minuts * 60 *1000) // start the time before another dose can be administered
+    // change pump variables for demonstration or test
+    float pump_init_delay = .5; // Minutes - Initial time before starting the pump on startup
+    float pump_on_time = .5; // Minutes - how long the pump stays on for
+    float pump_off_time = 1.5;
+
+    pumpTimer();
+
+    // Print pump data
+    Serial.print(" Pump pin status : ");
+    Serial.print(digitalRead(pump_pin));
+    Serial.print("    pump minutes : ");
+    Serial.print(pump_minutes);
+    Serial.print(" seconds : ");
+    Serial.println(pump_seconds);
+    //delay(1000);
   }
 
-void phDosing()
-  {
-    if (phDoseTimer.justFinished())
-      {
-
-      }
-    if (ph_value < ph_set_level && phDoseDelay.isRunning() == false ) //pH is low add a dose pH up
-      {
-        ph_up_dose = true;
-        phStartDosing(ph_up_pin); // start the dose pump 
-        phDoseDelay
-
-      }
-  }
-
-void nutrientDosing()
-  {
-    
-  }
-void phTest()
-  {
-    digitalWrite(ph_up_pin, HIGH);
-    delay(5000);
-    digitalWrite(ph_up_pin, LOW);
-  }
 // =================================================
 // ========== LCD DISPLAY ==========================
 // =================================================
@@ -543,40 +565,33 @@ void setup(void)
   
     //Initalize RTC
     initalize_rtc();
-    DateTime uptime = rtc.now();
-    unix_uptime = uptime.unixtime();
-    DateTime now = rtc.now();
-    
+    setUptime();
+    setTimeVariables();
+      
     //Initalize Pump
     pinMode(pump_pin, OUTPUT);
     digitalWrite(pump_pin,HIGH);
-
-    // Set initall pump ontime
-    unix_last_statechange = now.unixtime();
-    unix_next_statechange = unix_last_statechange + (int)(pump_init_delay*60);
-    current_timer = unix_next_statechange - unix_last_statechange;
-    pump_seconds = current_timer;
+    pumpOffTimer.start(pump_init_delay*60*1000); // start initilization period
+    pump_seconds = pumpOffTimer.remaining() *1000;
     
-    Serial.print("unixuptime : ");
-    Serial.print(unix_uptime);
-    Serial.print("   last state set : ");
-    Serial.print(unix_last_statechange);
-    Serial.print("   next state set : ");
-    Serial.print(unix_next_statechange);
-    Serial.print("   current timer : ");
-    Serial.print(current_timer);
-    Serial.print("    pumpt_init_delay : ");
-    Serial.println((int)(pump_init_delay*60));
+    Serial.print("Uptime : ");
+    Serial.print(up_year);
+    Serial.print(up_month);
+    Serial.print(up_twelve);
+    Serial.print(up_minute);
+
+    Serial.print("pump start timer : ");
+    Serial.println(pump_seconds);
 
     // Initalize dosing pumps
     pinMode(ph_up_pin, OUTPUT);
-    pinMode(ph_down_pin, OUTPUT);
-    pinMode(nutrient_a_pin, OUTPUT);
-    pinMode(nutrient_b_pin, OUTPUT);
-
     digitalWrite(ph_up_pin, LOW);
+    pinMode(ph_down_pin, OUTPUT);
     digitalWrite(ph_down_pin, LOW);
+
+    pinMode(nutrient_a_pin, OUTPUT);
     digitalWrite(nutrient_a_pin, LOW);
+    pinMode(nutrient_b_pin, OUTPUT);
     digitalWrite(nutrient_b_pin, LOW);
 
     // Prepare screen
@@ -596,22 +611,15 @@ void loop(void)
   getPH();
 
   // Time functions
-  DateTime now = rtc.now();
-  unix_now = now.unixtime();
-  hour = now.hour();
-  minute = now.minute();
-  second = now.second();
+  setTimeVariables();
 
   // Pump Timer
-  if (ph_adjustment_period == false)
-    {
-      //pumpTimer(); // uncomment this to turn on functioning pump timer
-      pumpTest();
-    }
+  //pumpTimer(); // uncomment this to turn on functioning pump timer
+  pumpTest();
   
   // pH Balance
-  phDosing();
-  phCheck
+  // phTest(); //used to test ph dosing motors
+  phDosingTimer(); // turn off dosing timer when finsihed
     
 
   //Nutrient Balance
@@ -621,7 +629,3 @@ void loop(void)
 }
 
 // ----------------- END MAIN LOOP ------------------------
-
-
- 
-
