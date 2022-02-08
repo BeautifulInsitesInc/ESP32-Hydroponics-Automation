@@ -30,9 +30,9 @@ LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);  // set the LCD address to 0x2
 bool temp_in_c = true; // Tempurature defaults to C
 bool twelve_hour_clock = true; // Clock format
 
-float pump_init_delay = 1; // Minutes - Initial time before starting the pump on startup
-float pump_on_time = 2; // Minutes - how long the pump stays on for
-float pump_off_time = 10; // Minutes -  how long the pump stays off for
+float pump_init_delay = .5; // Minutes - Initial time before starting the pump on startup
+float pump_on_time = .5; // Minutes - how long the pump stays on for
+float pump_off_time = 2; // Minutes -  how long the pump stays off for
 
 float ph_set_level = 6.2; // Desired pH level
 int ph_delay_minutes = 60;// miniumum period allowed between doses in minutes
@@ -189,7 +189,7 @@ void printDate()
     Serial.print(now.minute(), DEC);
     Serial.print(':');
     Serial.print(now.second(), DEC);
-    delay(2000);
+    delay(0);
     Serial.println();
 
     //Serial.print(" since midnight 1/1/1970 = ");
@@ -391,7 +391,7 @@ void getTDSReading()
 // ========== DOSING PUMPS =========================
 // =================================================
 //bool ph_up_dose = false; // is it ph up or down?
-int ph_dose_pin;
+int ph_dose_pin; //  used to pass motor pin to functions
 
 millisDelay phDoseTimer; // the dosing amount time
 millisDelay phDoseDelay; // the delay between doses - don't allow another dose before this
@@ -428,15 +428,39 @@ void nutrientDosing()
   {
     
   }
-void phTest()
+
+void doseTest()
   {
-    digitalWrite(ph_up_pin, HIGH);
-    delay(3000);
+    Serial.print("Starting dosing test in 10 seconds");
+    delay(5);
+    
     digitalWrite(ph_up_pin, LOW);
-    delay(5000);
-    digitalWrite(ph_down_pin, HIGH);
-    delay(3000);
+    Serial.println("PH UP is LOW - motor on");
+    delay(1000);
+    digitalWrite(ph_up_pin, HIGH);
+    Serial.println("PH UP is HIGH - motor off");
+    delay(1000);
+
     digitalWrite(ph_down_pin, LOW);
+    Serial.println("PH down is LOW");
+    delay(1000);
+    digitalWrite(ph_down_pin, HIGH);
+    Serial.println("PH down is HIGH");
+    delay(1000);
+
+    digitalWrite(nutrient_a_pin, LOW);
+    Serial.println("Nutrient A is LOW - motor on");
+    delay(1000);
+    digitalWrite(nutrient_a_pin, HIGH);
+    Serial.println("Nutrient A  is HIGH - motor off");
+    delay(1000);
+
+    digitalWrite(nutrient_b_pin, LOW);
+    Serial.println("Nutrient B is LOW");
+    delay(1000);
+    digitalWrite(nutrient_b_pin, HIGH);
+    Serial.println("Nutrient B is HIGH");
+    delay(1000);
   }
 
 // ==================================================
@@ -462,19 +486,22 @@ void pumpTimer()
         if (pumpOffTimer.justFinished()) // off delay is done, start pump
           {
             digitalWrite(pump_pin, LOW); // turn on pump
+            Serial.print("pump_on_time : ");
+            Serial.print(pump_on_time);
             pumpOnTimer.start(pump_on_time * 60 * 1000);
-            pump_seconds = pumpOnTimer.remaining() /1000;
+            pump_seconds = pumpOnTimer.remaining() / 1000;
             phBalanceCheck(); // check to see if ph dose is needed
+            
           }
       }
     else // pump is on, check timing
       {
-        pump_seconds = pumpOnTimer.remaining();
+        pump_seconds = pumpOnTimer.remaining() /1000;
         if (pumpOnTimer.justFinished()) // on time is done turn off
           {
             digitalWrite(pump_pin, HIGH); // turn off pump
             pumpOffTimer.start(pump_off_time * 60 * 1000);
-            pump_seconds = pumpOnTimer.remaining() /1000;
+            pump_seconds = pumpOffTimer.remaining() /1000;
           }
       }
     setPumpSeconds();
@@ -484,28 +511,57 @@ void displayPumpStatus()
   {
     if (digitalRead(pump_pin) == 0) lcd.print("ON ");
       else lcd.print("OFF");
+    //lcd.setCursor(9,3);
+    //lcd.print("         ");
     lcd.setCursor(9,3);
     lcd.print(pump_minutes);
     printDigits(pump_seconds); // use time fuction to print 2 digit seconds
   }
 
-void pumpTest()
+// ==================================================
+// ===========  ROTARY ENCODER ======================
+// ==================================================
+
+void IRAM_ATTR readEncoderISR() {rotaryEncoder.readEncoder_ISR();}
+
+void initilizeRotaryEncoder()
   {
-    // change pump variables for demonstration or test
-    float pump_init_delay = .5; // Minutes - Initial time before starting the pump on startup
-    float pump_on_time = .5; // Minutes - how long the pump stays on for
-    float pump_off_time = 1.5;
+    rotaryEncoder.begin();
+    rotaryEncoder.setup(readEncoderISR);
+    //rotaryEncoder.setBoundaries(0, 1000, false); //minValue, maxValue, circleValues true|false (when max go to min and vice versa)
+    rotaryEncoder.setAcceleration(0); //or set the value - larger number = more accelearation; 0 or 1 means disabled acceleration
+  }
 
-    pumpTimer();
+void rotaryChanged()
+  {
+    int rotaryValue = rotaryEncoder.readEncoder();
+    lcd.setCursor(15,2);
+    lcd.print("    ");
+    lcd.setCursor(15,2);
+    lcd.print(rotaryValue);
+  }
 
-    // Print pump data
-    Serial.print(" Pump pin status : ");
-    Serial.print(digitalRead(pump_pin));
-    Serial.print("    pump minutes : ");
-    Serial.print(pump_minutes);
-    Serial.print(" seconds : ");
-    Serial.println(pump_seconds);
-    //delay(1000);
+void rotaryClicked()
+  {
+    lcd.setCursor(15,2);
+    lcd.print("    ");
+    lcd.setCursor(15,2);
+    lcd.print("C");
+    delay(1000);
+    lcd.setCursor(15,2);
+    lcd.print("    ");
+  }
+
+void loopRotaryEncoder()
+  {
+    if (rotaryEncoder.encoderChanged())
+      {
+        rotaryChanged();
+      }
+    if (rotaryEncoder.isEncoderButtonClicked())
+      {
+        rotaryClicked();
+      }
   }
 
 // =================================================
@@ -536,7 +592,7 @@ void displayMainscreenstatic()// Display the parts that don't change
     lcd.setCursor(2,2);
     lcd.print("PH:");
     lcd.setCursor(0,3);
-    lcd.print("Pump:");
+    lcd.println("Pump:");
   }
 
 void displayMainscreenData() // Display the data that changes on main screen
@@ -557,43 +613,19 @@ void displayMainscreenData() // Display the data that changes on main screen
       lcd.setCursor(5,2);lcd.print(ph_value); 
 
     //----Display  Pump status
+
       lcd.setCursor(5,3);
       displayPumpStatus();
+
 
     // ---- Display time
       lcd.setCursor(13,0);
       displayTime();
-  }
-// ==================================================
-// ===========  ROTARY ENCODER ======================
-// ==================================================
-void IRAM_ATTR readEncoderISR()
-  {
-    rotaryEncoder.readEncoder_ISR();
-  }
 
-void initilizeRotaryEncoder()
-  {
-    rotaryEncoder.begin();
-    rotaryEncoder.setup(readEncoderISR);
-    rotaryEncoder.setBoundaries(0, 1000, false); //minValue, maxValue, circleValues true|false (when max go to min and vice versa)
-    rotaryEncoder.setAcceleration(250);
-    rotaryEncoder.setAcceleration(250); //or set the value - larger number = more accelearation; 0 or 1 means disabled acceleration
+    // --- Test display rotary encoder on pH line
+      //lcd.setCursor(13,2);
+      //displayRotaryEncoder();
   }
-
-void checkRotaryEncoder()
-  {
-    if (rotaryEncoder.encoderChanged())
-      {
-          Serial.print("Rotary Encoder : ");
-          Serial.println(rotaryEncoder.readEncoder());
-      }
-    if (rotaryEncoder.isEncoderButtonClicked())
-      {
-          Serial.println("button pressed");
-      }
-  }
-
 
 // ==================================================
 // ===========  MAIN SETUP ==========================
@@ -620,20 +652,19 @@ void setup(void)
     pumpOffTimer.start(pump_init_delay*60*1000); // start initilization period
     pump_seconds = pumpOffTimer.remaining() /1000;
        
-
     Serial.print("pump start timer : ");
     Serial.println(pump_seconds);
 
     // Initalize dosing pumps
     pinMode(ph_up_pin, OUTPUT);
-    digitalWrite(ph_up_pin, LOW);
+    digitalWrite(ph_up_pin, HIGH);
     pinMode(ph_down_pin, OUTPUT);
-    digitalWrite(ph_down_pin, LOW);
+    digitalWrite(ph_down_pin, HIGH);
 
     pinMode(nutrient_a_pin, OUTPUT);
-    digitalWrite(nutrient_a_pin, LOW);
+    digitalWrite(nutrient_a_pin, HIGH);
     pinMode(nutrient_b_pin, OUTPUT);
-    digitalWrite(nutrient_b_pin, LOW);
+    digitalWrite(nutrient_b_pin, HIGH);
 
     // Initilize Rotary Encoder
     initilizeRotaryEncoder();
@@ -641,6 +672,8 @@ void setup(void)
     // Prepare screen
     displaySplashscreen();
     displayMainscreenstatic();
+
+    doseTest(); //used to test ph dosing motors
   }
 
 // ====================================================
@@ -650,28 +683,27 @@ void setup(void)
 void loop(void)
 {
   // Get readings
-  getWaterTemp(); // sets tempC and tempF
+  //getWaterTemp(); // sets tempC and tempF
   //printTemp();
-  getTDSReading(); // sets tds_value
-  getPH();
+  //getTDSReading(); // sets tds_value
+  //getPH();
 
   // Time functions
   setTimeVariables();
   //printDate();
 
   // Pump Timer
-  //pumpTimer(); // uncomment this to turn on functioning pump timer
-  pumpTest();
-  
+  pumpTimer(); // uncomment this to turn on functioning pump timer
+
   // pH Balance
-  // phTest(); //used to test ph dosing motors
-  phDosingTimer(); // turn off dosing timer when finsihed
+  
+  //phDosingTimer(); // turn off dosing timer when finsihed
     
 
   //Nutrient Balance
   //nutrientDosing();
 
-  checkRotaryEncoder();
+  loopRotaryEncoder();
 
   displayMainscreenData();
 }
