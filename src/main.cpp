@@ -7,6 +7,7 @@
 #include <RTClib.h>
 #include <SPI.h>
 #include <millisDelay.h> // part of the SafeString Library
+#include <AiEsp32RotaryEncoder.h> //Rotary encodder library
 
 // ---- Classes --------------
 RTC_DS3231 rtc; 
@@ -43,6 +44,8 @@ int ppm_delay_seconds = 60; //period btween readings/doses in minutes
 float ppm_dose_seconds = 3; // Time Dosing pump runs per dose
 
 // ----- SET PINS ------------------
+// Pin 21 - SDA - RTC and LCD screen
+// Pin 22 - SCL - RTC and LCD screen
 OneWire oneWire(16);// Tempurature pin - Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
 const int tds_pin = 34; // TDS sensor pin - try 13 if 26 doesnt work
 const int ph_pin = 35; // pH sensor pin
@@ -55,6 +58,13 @@ const int ph_down_pin = 26; // pH down dosing pump
 
 const int nutrient_a_pin = 19; // nutrient part A dosing pump
 const int nutrient_b_pin = 18; // nutrient part B dosing pump
+
+#define ROTARY_ENCODER_A_PIN 36 // CLK pin
+#define ROTARY_ENCODER_B_PIN 39  // DT pin
+#define ROTARY_ENCODER_BUTTON_PIN 27 // SW (Button pin)
+#define ROTARY_ENCODER_VCC_PIN -1  // Set to -1 if connecting to VCC (otherwise any output in)
+#define ROTARY_ENCODER_STEPS 4
+AiEsp32RotaryEncoder rotaryEncoder = AiEsp32RotaryEncoder(ROTARY_ENCODER_A_PIN, ROTARY_ENCODER_B_PIN, ROTARY_ENCODER_BUTTON_PIN, -1, ROTARY_ENCODER_STEPS);
 
 // *************** CALIBRATION FUNCTION ******************
 // To calibrate actual votage read at pin to the esp32 reading
@@ -217,6 +227,12 @@ void getWaterTemp()
       }
   }
 
+void printTemp()
+  {
+    Serial.print("tempC : ");
+    Serial.println(tempC);
+  }
+
 // =======================================================
 // ======= PH SENSOR =====================================
 // =======================================================
@@ -349,7 +365,7 @@ void getTDSReading()
           float compensationCoefficient=1.0+0.02*(temperature-25.0);    //temperature compensation formula: fFinalResult(25^C) = fFinalResult(current)/(1.0+0.02*(fTP-25.0));
           float compensationVolatge=average_voltage/compensationCoefficient;  //temperature compensation
           tds_value=(133.42*compensationVolatge*compensationVolatge*compensationVolatge - 255.86*compensationVolatge*compensationVolatge + 857.39*compensationVolatge)*0.5; //convert voltage value to tds value
-        /*
+        
           Serial.print("   analogRead: ");
           Serial.print(analogRead(tds_pin));
           Serial.print("   median_read: ");
@@ -367,7 +383,7 @@ void getTDSReading()
           Serial.print("   TtdsValue: ");
           Serial.println(tds_value, 0);
           delay(0);
-      */
+      
       }
   }
 
@@ -380,7 +396,7 @@ int ph_dose_pin;
 millisDelay phDoseTimer; // the dosing amount time
 millisDelay phDoseDelay; // the delay between doses - don't allow another dose before this
 
-void phDose(ph_dose_pin) // turns on the approiate ph dosing pump
+void phDose(int motor_pin) // turns on the approiate ph dosing pump
   {
     if (phDoseDelay.isRunning() == false)
       {
@@ -528,7 +544,7 @@ void displayMainscreenData() // Display the data that changes on main screen
     // Display tempurature
       lcd.setCursor(5,0);
       //getWaterTemp(); // will return -100 if there is an issue -  not needed variable tempC is already set
-      if (tempC == -100) lcd.print("(error)   ");
+      if (tempC == -100) lcd.print("(err)  ");
       else {if (temp_in_c == true) {lcd.print(tempC);lcd.print((char)223);lcd.print("C"); }
             else {lcd.print(tempF); lcd.print((char)223); lcd.print("F");}}
 
@@ -548,6 +564,36 @@ void displayMainscreenData() // Display the data that changes on main screen
       lcd.setCursor(13,0);
       displayTime();
   }
+// ==================================================
+// ===========  ROTARY ENCODER ======================
+// ==================================================
+void IRAM_ATTR readEncoderISR()
+  {
+    rotaryEncoder.readEncoder_ISR();
+  }
+
+void initilizeRotaryEncoder()
+  {
+    rotaryEncoder.begin();
+    rotaryEncoder.setup(readEncoderISR);
+    rotaryEncoder.setBoundaries(0, 1000, false); //minValue, maxValue, circleValues true|false (when max go to min and vice versa)
+    rotaryEncoder.setAcceleration(250);
+    rotaryEncoder.setAcceleration(250); //or set the value - larger number = more accelearation; 0 or 1 means disabled acceleration
+  }
+
+void checkRotaryEncoder()
+  {
+    if (rotaryEncoder.encoderChanged())
+      {
+          Serial.print("Rotary Encoder : ");
+          Serial.println(rotaryEncoder.readEncoder());
+      }
+    if (rotaryEncoder.isEncoderButtonClicked())
+      {
+          Serial.println("button pressed");
+      }
+  }
+
 
 // ==================================================
 // ===========  MAIN SETUP ==========================
@@ -567,18 +613,13 @@ void setup(void)
     initalize_rtc();
     setUptime();
     setTimeVariables();
-      
+
     //Initalize Pump
     pinMode(pump_pin, OUTPUT);
     digitalWrite(pump_pin,HIGH);
     pumpOffTimer.start(pump_init_delay*60*1000); // start initilization period
-    pump_seconds = pumpOffTimer.remaining() *1000;
-    
-    Serial.print("Uptime : ");
-    Serial.print(up_year);
-    Serial.print(up_month);
-    Serial.print(up_twelve);
-    Serial.print(up_minute);
+    pump_seconds = pumpOffTimer.remaining() /1000;
+       
 
     Serial.print("pump start timer : ");
     Serial.println(pump_seconds);
@@ -594,6 +635,9 @@ void setup(void)
     pinMode(nutrient_b_pin, OUTPUT);
     digitalWrite(nutrient_b_pin, LOW);
 
+    // Initilize Rotary Encoder
+    initilizeRotaryEncoder();
+
     // Prepare screen
     displaySplashscreen();
     displayMainscreenstatic();
@@ -607,11 +651,13 @@ void loop(void)
 {
   // Get readings
   getWaterTemp(); // sets tempC and tempF
+  //printTemp();
   getTDSReading(); // sets tds_value
   getPH();
 
   // Time functions
   setTimeVariables();
+  //printDate();
 
   // Pump Timer
   //pumpTimer(); // uncomment this to turn on functioning pump timer
@@ -624,6 +670,8 @@ void loop(void)
 
   //Nutrient Balance
   //nutrientDosing();
+
+  checkRotaryEncoder();
 
   displayMainscreenData();
 }
