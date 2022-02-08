@@ -28,6 +28,10 @@ LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);  // set the LCD address to 0x2
 
 // ----- DEFAULT SETTINGS ------
 bool temp_in_c = true; // Tempurature defaults to C
+float heater = 25; // Tempurature that shuts off the heater
+float heater_delay = .5; // Delay heater power on initiation in minutes
+
+
 bool twelve_hour_clock = true; // Clock format
 
 float pump_init_delay = .5; // Minutes - Initial time before starting the pump on startup
@@ -211,6 +215,8 @@ void printDate()
 float tempC; // tempurature in Celsius
 float tempF; // tempurature in Fahrenheit
 
+millisDelay heaterTimer;
+
 #define TEMPERATURE_PRECISION 10
 DallasTemperature waterTempSensor(&oneWire); // Pass our oneWire reference to Dallas Temperature.
 
@@ -231,6 +237,14 @@ void printTemp()
   {
     Serial.print("tempC : ");
     Serial.println(tempC);
+  }
+void checkHeater()
+  {
+      if (heaterTimer.remaining()==0) // if delay is done, start heater if needed
+        {
+          if (tempC < heater) digitalWrite(heater_pin, LOW);
+          else digitalWrite(heater_pin, HIGH);
+        }
   }
 
 // =======================================================
@@ -507,16 +521,6 @@ void pumpTimer()
     setPumpSeconds();
   }
 
-void displayPumpStatus()
-  {
-    if (digitalRead(pump_pin) == 0) lcd.print("ON ");
-      else lcd.print("OFF");
-    //lcd.setCursor(9,3);
-    //lcd.print("         ");
-    lcd.setCursor(9,3);
-    lcd.print(pump_minutes);
-    printDigits(pump_seconds); // use time fuction to print 2 digit seconds
-  }
 
 // ==================================================
 // ===========  ROTARY ENCODER ======================
@@ -535,20 +539,20 @@ void initilizeRotaryEncoder()
 void rotaryChanged()
   {
     int rotaryValue = rotaryEncoder.readEncoder();
-    lcd.setCursor(15,2);
+    lcd.setCursor(15,1);
     lcd.print("    ");
-    lcd.setCursor(15,2);
+    lcd.setCursor(15,1);
     lcd.print(rotaryValue);
   }
 
 void rotaryClicked()
   {
-    lcd.setCursor(15,2);
+    lcd.setCursor(15,1);
     lcd.print("    ");
-    lcd.setCursor(15,2);
+    lcd.setCursor(15,1);
     lcd.print("C");
     delay(1000);
-    lcd.setCursor(15,2);
+    lcd.setCursor(15,1);
     lcd.print("    ");
   }
 
@@ -580,46 +584,59 @@ void displaySplashscreen()// Display the splash screen
     lcd.print("Feel Good");
     lcd.setCursor(4,3);
     lcd.print("Look Good");
-    delay(1000);
+    delay(3000);
     lcd.clear();
   }
 void displayMainscreenstatic()// Display the parts that don't change
   {
-    lcd.setCursor(0,0);
-    lcd.print("Temp:");
-    lcd.setCursor(1,1);
-    lcd.print("TDS:");
-    lcd.setCursor(2,2);
+    lcd.setCursor(1,0);
     lcd.print("PH:");
+    lcd.setCursor(0,1);
+    lcd.print("TDS:");
+    lcd.setCursor(0,2);
+    lcd.print("TMP:");
     lcd.setCursor(0,3);
-    lcd.println("Pump:");
+    lcd.print("PMP:");
   }
 
 void displayMainscreenData() // Display the data that changes on main screen
   {
+    // ---- Display pH Reading
+    lcd.setCursor(5,0);lcd.print(ph_value); 
+
     // Display tempurature
-      lcd.setCursor(5,0);
-      //getWaterTemp(); // will return -100 if there is an issue -  not needed variable tempC is already set
-      if (tempC == -100) lcd.print("(err)  ");
-      else {if (temp_in_c == true) {lcd.print(tempC);lcd.print((char)223);lcd.print("C"); }
-            else {lcd.print(tempF); lcd.print((char)223); lcd.print("F");}}
+    lcd.setCursor(5,2);
+    //getWaterTemp(); // will return -100 if there is an issue -  not needed variable tempC is already set
+    if (tempC == -100) lcd.print("(err)  ");
+    else {if (temp_in_c == true) {lcd.print(tempC);lcd.print((char)223);lcd.print("C"); }
+          else {lcd.print(tempF); lcd.print((char)223); lcd.print("F");}}
+    if (digitalRead(heater_pin) == 0)
+      {
+        lcd.setCursor(17,2);
+        lcd.print("(H)");
+      }
+    else
+      {
+        lcd.setCursor(17,2);
+        lcd.print("   ");
+      }
 
     // Display TDS reading
       lcd.setCursor(5,1);
       if (tds_value > 1000) lcd.print("(error)    ");
-      else {lcd.print(tds_value);lcd.print("(PPM)    ");}
+      else {lcd.print(tds_value);lcd.print(" PPM    ");}
     
-    // ---- Display pH Reading
-      lcd.setCursor(5,2);lcd.print(ph_value); 
-
+   
     //----Display  Pump status
-
       lcd.setCursor(5,3);
-      displayPumpStatus();
-
+      if (digitalRead(pump_pin) == 0) lcd.print("ON ");
+      else lcd.print("OFF");
+      lcd.setCursor(16,3);
+      lcd.print(pump_minutes);
+      printDigits(pump_seconds); // use time fuction to print 2 digit seconds
 
     // ---- Display time
-      lcd.setCursor(13,0);
+      lcd.setCursor(14,0);
       displayTime();
 
     // --- Test display rotary encoder on pH line
@@ -655,6 +672,11 @@ void setup(void)
     Serial.print("pump start timer : ");
     Serial.println(pump_seconds);
 
+    //Initalize Heater
+    pinMode(heater_pin, OUTPUT);
+    digitalWrite(heater_pin, HIGH);
+    heaterTimer.start(heater_delay *60 * 1000); // start heater initilization delay
+    
     // Initalize dosing pumps
     pinMode(ph_up_pin, OUTPUT);
     digitalWrite(ph_up_pin, HIGH);
@@ -683,10 +705,12 @@ void setup(void)
 void loop(void)
 {
   // Get readings
-  //getWaterTemp(); // sets tempC and tempF
-  //printTemp();
-  //getTDSReading(); // sets tds_value
-  //getPH();
+  getWaterTemp(); // sets tempC and tempF
+  getTDSReading(); // sets tds_value
+  getPH();
+
+  //Heater
+  checkHeater();
 
   // Time functions
   setTimeVariables();
