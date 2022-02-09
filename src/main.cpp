@@ -9,28 +9,13 @@
 #include <millisDelay.h> // part of the SafeString Library
 #include <AiEsp32RotaryEncoder.h> //Rotary encodder library
 
-// ---- Classes --------------
-RTC_DS3231 rtc; 
+LiquidCrystal_I2C lcd(0x27, 20, 4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 SimpleTimer timer;
-
-// ----- GLOBAL VARIABLES --------
-
-DateTime uptime;
-unsigned long unix_uptime;
-unsigned long uptime_seconds;
-DateTime now;
-unsigned long unix_now;
-
-// ----- LCD SETTINGS --------
-int lcdColumns = 20; // LCD Columns
-int lcdRows = 4; // LCD Rows
-LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 
 // ----- DEFAULT SETTINGS ------
 bool temp_in_c = true; // Tempurature defaults to C
 float heater = 25; // Tempurature that shuts off the heater
 float heater_delay = .5; // Delay heater power on initiation in minutes
-
 
 bool twelve_hour_clock = true; // Clock format
 
@@ -68,14 +53,12 @@ const int nutrient_b_pin = 18; // nutrient part B dosing pump
 #define ROTARY_ENCODER_BUTTON_PIN 27 // SW (Button pin)
 #define ROTARY_ENCODER_VCC_PIN -1  // Set to -1 if connecting to VCC (otherwise any output in)
 #define ROTARY_ENCODER_STEPS 4
-AiEsp32RotaryEncoder rotaryEncoder = AiEsp32RotaryEncoder(ROTARY_ENCODER_A_PIN, ROTARY_ENCODER_B_PIN, ROTARY_ENCODER_BUTTON_PIN, -1, ROTARY_ENCODER_STEPS);
 
 // *************** CALIBRATION FUNCTION ******************
 // To calibrate actual votage read at pin to the esp32 reading
 uint32_t readADC_Cal(int ADC_Raw)
 {
   esp_adc_cal_characteristics_t adc_chars;
-  
   esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &adc_chars);
   return(esp_adc_cal_raw_to_voltage(ADC_Raw, &adc_chars));
 }
@@ -83,28 +66,15 @@ uint32_t readADC_Cal(int ADC_Raw)
 // =======================================================
 // ========== RTC Functions ==============================
 // =======================================================
+RTC_DS3231 rtc; 
+DateTime uptime;
+DateTime now;
+
 char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 bool display_seconds = false;
-
-int year;
-int month;
-int day;
-int dayofweek;
-int hour; // 24 hour clock
-int twelvehour; // hour in 12 hour format
+int year, month, day, dayofweek, minute, second, hour,twelvehour; // hour is 24 hour, twelvehour is 12 hour format
 bool ispm; // yes = PM
 String am_pm;
-int minute;
-int second;
-
-int up_year;
-int up_month;
-int up_day;
-int up_hour;
-int up_12hour;
-bool up_ispm;
-int up_minute;
-int up_second;
 
 void initalize_rtc()
   {
@@ -117,52 +87,25 @@ void initalize_rtc()
     if (rtc.lostPower()) 
       {
         Serial.println("RTC lost power, let's set the time!");
-        // When time needs to be set on a new device, or after a power loss, the
-        // following line sets the RTC to the date & time this sketch was compiled
-        rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-        // This line sets the RTC with an explicit date & time, for example to set
-        // January 21, 2014 at 3am you would call:
-        // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
-      }  
-  }
-
-void setUptime()
-  {
-    DateTime uptime = rtc.now();
-    up_year = uptime.year();
-    up_month = uptime.month();
-    up_day = uptime.day();
-    up_hour = uptime.hour();
-    up_12hour = uptime.twelveHour();
-    up_ispm = uptime.isPM();
-    up_minute = uptime.minute();
-    up_second = uptime.second();
-    unix_uptime = uptime.unixtime();
+        rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); //sets the RTC to the date & time this sketch was compiled
+        // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0)); //January 21, 2014 at 3am you would call:
+      } 
+    DateTime uptime = rtc.now(); // Set time at boot up
   }
 
 void setTimeVariables()
   {
     DateTime now = rtc.now();
-    year = now.year();
-    month = now.month();
-    day = now.day();
-    dayofweek = now.dayOfTheWeek();
-    hour = now.hour();
-    twelvehour = now.twelveHour();
-    ispm =now.isPM();
-    minute = now.minute();
-    second = now.second();
+    year = now.year(); month = now.month(); day = now.day(); dayofweek = now.dayOfTheWeek(); hour = now.hour(); twelvehour = now.twelveHour(); ispm =now.isPM(); minute = now.minute(); second = now.second();
   }
 
 void printDigits(int digit) // To alwasy display time in 2 digits
   {
       lcd.print(":");
-      if(digit < 10)
-        {
-          lcd.print('0');
-        }
-        lcd.print(digit);
+      if(digit < 10) lcd.print('0');
+      lcd.print(digit);
   }
+
 void displayTime()  // Displays time in proper format
   {
     if (twelve_hour_clock == true)
@@ -177,46 +120,13 @@ void displayTime()  // Displays time in proper format
     if (display_seconds == true) printDigits(second);
   }
 
-void printDate() 
-  {
-    DateTime now = rtc.now();
-    Serial.print(now.year(), DEC);
-    Serial.print('/');
-    Serial.print(now.month(), DEC);
-    Serial.print('/');
-    Serial.print(now.day(), DEC);
-    Serial.print(" (");
-    Serial.print(daysOfTheWeek[now.dayOfTheWeek()]);
-    Serial.print(") ");
-    Serial.print(now.hour(), DEC);
-    Serial.print(':');
-    Serial.print(now.minute(), DEC);
-    Serial.print(':');
-    Serial.print(now.second(), DEC);
-    delay(0);
-    Serial.println();
-
-    //Serial.print(" since midnight 1/1/1970 = ");
-    //Serial.print(now.unixtime());
-    
-    // calculate a date which is 7 days, 12 hours, 30 minutes, 6 seconds into the future
-    /*DateTime future (now + TimeSpan(7,12,30,6));
-
-      Serial.print(" now + 7d + 12h + 30m + 6s: ");
-      Serial.print(future.year(), DEC);
-      Serial.print('/');
-    */
-  }
 
 // =======================================================
 // ======= TEMPURATURE SENSOR DS18B20 ====================
 // =======================================================
-
 float tempC; // tempurature in Celsius
 float tempF; // tempurature in Fahrenheit
-
 millisDelay heaterTimer;
-
 #define TEMPERATURE_PRECISION 10
 DallasTemperature waterTempSensor(&oneWire); // Pass our oneWire reference to Dallas Temperature.
 
@@ -233,11 +143,6 @@ void getWaterTemp()
       }
   }
 
-void printTemp()
-  {
-    Serial.print("tempC : ");
-    Serial.println(tempC);
-  }
 void checkHeater()
   {
       if (heaterTimer.remaining()==0) // if delay is done, start heater if needed
@@ -250,7 +155,6 @@ void checkHeater()
 // =======================================================
 // ======= PH SENSOR =====================================
 // =======================================================
-
 float ph_value; // actual pH value to display on screen
 float ph_calibration_adjustment = 0; // adjust this to calibrate
 //float calibration_value_ph = 21.34 + ph_calibration_adjustment;
@@ -293,14 +197,10 @@ void getPH()
     //ph_value = (-5.70 * calibrated_voltage) + calibration_value_ph; // Calculate the actual pH
   
     /*
-      Serial.print("    average_reading  = ");
-      Serial.print(average_reading );
-      Serial.print("      calculated_voltage = ");
-      Serial.print(calculated_voltage);
-      Serial.print("     calibtraded_voltage = ");
-      Serial.print(calibrated_voltage);
-      Serial.print("     ph_value = ");
-      Serial.println(ph_value);
+      Serial.print("    average_reading  = "); Serial.print(average_reading );
+      Serial.print("      calculated_voltage = "); Serial.print(calculated_voltage);
+      Serial.print("     calibtraded_voltage = "); Serial.print(calibrated_voltage);
+      Serial.print("     ph_value = "); Serial.println(ph_value);
       delay(0); // pause between serial monitor output - can be set to zero after testing
     */
   }
@@ -308,7 +208,6 @@ void getPH()
 // =======================================================
 // ======= PPM OCEAN TDS METER SENSOR ====================
 // =======================================================
-
 int tds_value = 0;
 const int sample_count = 30;    // sum of sample point
 int analogBuffer[sample_count]; // store the analog value in the array, read from ADC
@@ -373,31 +272,20 @@ void getTDSReading()
           float current_read = analogRead(tds_pin);
           float current_voltage = current_read * voltage_input / adc_resolution;
           float median_read = getMedianNum(analogBuffer,sample_count);
-          //float calibrated_voltage = readADC_Cal(average_voltage);
-          //calibrated_voltage = calibrated_voltage/1000;
           
           float compensationCoefficient=1.0+0.02*(temperature-25.0);    //temperature compensation formula: fFinalResult(25^C) = fFinalResult(current)/(1.0+0.02*(fTP-25.0));
           float compensationVolatge=average_voltage/compensationCoefficient;  //temperature compensation
           tds_value=(133.42*compensationVolatge*compensationVolatge*compensationVolatge - 255.86*compensationVolatge*compensationVolatge + 857.39*compensationVolatge)*0.5; //convert voltage value to tds value
         
-          Serial.print("   analogRead: ");
-          Serial.print(analogRead(tds_pin));
-          Serial.print("   median_read: ");
-          Serial.print(median_read);
-          Serial.print("   voltage : ");
-          Serial.print(current_voltage);
-          Serial.print("   average_voltage : ");
-          Serial.print(average_voltage,2);
-          //Serial.print("   calibrated_voltage: ");
-          //Serial.print(calibrated_voltage,2);
-          Serial.print("   Temp: ");
-          Serial.print(temperature);
-          Serial.print("   compensationVoltage: ");
-          Serial.println(compensationVolatge);
-          Serial.print("   TtdsValue: ");
-          Serial.println(tds_value, 0);
+          Serial.print("   analogRead: "); Serial.print(analogRead(tds_pin));
+          Serial.print("   median_read: "); Serial.print(median_read);
+          Serial.print("   voltage : "); Serial.print(current_voltage);
+          Serial.print("   average_voltage : "); Serial.print(average_voltage,2);
+          //Serial.print("   calibrated_voltage: "); Serial.print(calibrated_voltage,2);
+          Serial.print("   Temp: "); Serial.print(temperature);
+          Serial.print("   compensationVoltage: "); Serial.println(compensationVolatge);
+          Serial.print("   TtdsValue: "); Serial.println(tds_value, 0);
           delay(0);
-      
       }
   }
 
@@ -406,7 +294,6 @@ void getTDSReading()
 // =================================================
 //bool ph_up_dose = false; // is it ph up or down?
 int ph_dose_pin; //  used to pass motor pin to functions
-
 millisDelay phDoseTimer; // the dosing amount time
 millisDelay phDoseDelay; // the delay between doses - don't allow another dose before this
 
@@ -448,32 +335,24 @@ void doseTest()
     Serial.print("Starting dosing test in 10 seconds");
     delay(5);
     
-    digitalWrite(ph_up_pin, LOW);
-    Serial.println("PH UP is LOW - motor on");
+    digitalWrite(ph_up_pin, LOW); Serial.println("PH UP is LOW - motor on");
     delay(1000);
-    digitalWrite(ph_up_pin, HIGH);
-    Serial.println("PH UP is HIGH - motor off");
+    digitalWrite(ph_up_pin, HIGH); Serial.println("PH UP is HIGH - motor off");
     delay(1000);
 
-    digitalWrite(ph_down_pin, LOW);
-    Serial.println("PH down is LOW");
+    digitalWrite(ph_down_pin, LOW); Serial.println("PH down is LOW");
     delay(1000);
-    digitalWrite(ph_down_pin, HIGH);
-    Serial.println("PH down is HIGH");
+    digitalWrite(ph_down_pin, HIGH); Serial.println("PH down is HIGH");
     delay(1000);
 
-    digitalWrite(nutrient_a_pin, LOW);
-    Serial.println("Nutrient A is LOW - motor on");
+    digitalWrite(nutrient_a_pin, LOW); Serial.println("Nutrient A is LOW - motor on");
     delay(1000);
-    digitalWrite(nutrient_a_pin, HIGH);
-    Serial.println("Nutrient A  is HIGH - motor off");
+    digitalWrite(nutrient_a_pin, HIGH); Serial.println("Nutrient A  is HIGH - motor off");
     delay(1000);
 
-    digitalWrite(nutrient_b_pin, LOW);
-    Serial.println("Nutrient B is LOW");
+    digitalWrite(nutrient_b_pin, LOW); Serial.println("Nutrient B is LOW");
     delay(1000);
-    digitalWrite(nutrient_b_pin, HIGH);
-    Serial.println("Nutrient B is HIGH");
+    digitalWrite(nutrient_b_pin, HIGH); Serial.println("Nutrient B is HIGH");
     delay(1000);
   }
 
@@ -521,10 +400,10 @@ void pumpTimer()
     setPumpSeconds();
   }
 
-
 // ==================================================
 // ===========  ROTARY ENCODER ======================
 // ==================================================
+AiEsp32RotaryEncoder rotaryEncoder = AiEsp32RotaryEncoder(ROTARY_ENCODER_A_PIN, ROTARY_ENCODER_B_PIN, ROTARY_ENCODER_BUTTON_PIN, -1, ROTARY_ENCODER_STEPS);
 
 void IRAM_ATTR readEncoderISR() {rotaryEncoder.readEncoder_ISR();}
 
@@ -539,21 +418,16 @@ void initilizeRotaryEncoder()
 void rotaryChanged()
   {
     int rotaryValue = rotaryEncoder.readEncoder();
-    lcd.setCursor(15,1);
-    lcd.print("    ");
-    lcd.setCursor(15,1);
-    lcd.print(rotaryValue);
+    lcd.setCursor(15,1); lcd.print("    ");
+    lcd.setCursor(15,1); lcd.print(rotaryValue);
   }
 
 void rotaryClicked()
   {
-    lcd.setCursor(15,1);
-    lcd.print("    ");
-    lcd.setCursor(15,1);
-    lcd.print("C");
+    lcd.setCursor(15,1); lcd.print("    ");
+    lcd.setCursor(15,1); lcd.print("C");
     delay(1000);
-    lcd.setCursor(15,1);
-    lcd.print("    ");
+    lcd.setCursor(15,1);lcd.print("    ");
   }
 
 void loopRotaryEncoder()
@@ -576,72 +450,48 @@ void displaySplashscreen()// Display the splash screen
   {
     lcd.init(); // Initialize LCD
     lcd.backlight(); // Turn on the LCD backlight
-    lcd.setCursor(1,0);
-    lcd.print("CONCIERGE GROWERS");
-    lcd.setCursor(5,1);
-    lcd.print("Eat Good");
-    lcd.setCursor(4,2);
-    lcd.print("Feel Good");
-    lcd.setCursor(4,3);
-    lcd.print("Look Good");
-    delay(3000);
+    lcd.setCursor(1,0); lcd.print("CONCIERGE GROWERS");
+    lcd.setCursor(5,1); lcd.print("Eat Good");
+    lcd.setCursor(4,2); lcd.print("Feel Good");
+    lcd.setCursor(4,3); lcd.print("Look Good");
+    delay(1000);
     lcd.clear();
   }
+
 void displayMainscreenstatic()// Display the parts that don't change
   {
-    lcd.setCursor(1,0);
-    lcd.print("PH:");
-    lcd.setCursor(0,1);
-    lcd.print("TDS:");
-    lcd.setCursor(0,2);
-    lcd.print("TMP:");
-    lcd.setCursor(0,3);
-    lcd.print("PMP:");
+    lcd.setCursor(1,0); lcd.print("PH:");
+    lcd.setCursor(0,1); lcd.print("TDS:");
+    lcd.setCursor(0,2); lcd.print("TMP:");
+    lcd.setCursor(0,3); lcd.print("PMP:");
   }
 
 void displayMainscreenData() // Display the data that changes on main screen
   {
-    // ---- Display pH Reading
-    lcd.setCursor(5,0);lcd.print(ph_value); 
+    // ---- PH READING
+    lcd.setCursor(5,0); lcd.print(ph_value); 
 
-    // Display tempurature
+    // --- TEMPURATURE
     lcd.setCursor(5,2);
-    //getWaterTemp(); // will return -100 if there is an issue -  not needed variable tempC is already set
     if (tempC == -100) lcd.print("(err)  ");
     else {if (temp_in_c == true) {lcd.print(tempC);lcd.print((char)223);lcd.print("C"); }
           else {lcd.print(tempF); lcd.print((char)223); lcd.print("F");}}
-    if (digitalRead(heater_pin) == 0)
-      {
-        lcd.setCursor(17,2);
-        lcd.print("(H)");
-      }
-    else
-      {
-        lcd.setCursor(17,2);
-        lcd.print("   ");
-      }
+    if (digitalRead(heater_pin) == 0) {lcd.setCursor(17,2); lcd.print("(H)");}
+    else{lcd.setCursor(17,2); lcd.print("   ");}
 
     // Display TDS reading
-      lcd.setCursor(5,1);
-      if (tds_value > 1000) lcd.print("(error)    ");
-      else {lcd.print(tds_value);lcd.print(" PPM    ");}
-    
+    lcd.setCursor(5,1);
+    if (tds_value > 1000) lcd.print("(error)    ");
+    else {lcd.print(tds_value); lcd.print(" PPM    ");}
    
     //----Display  Pump status
-      lcd.setCursor(5,3);
-      if (digitalRead(pump_pin) == 0) lcd.print("ON ");
-      else lcd.print("OFF");
-      lcd.setCursor(16,3);
-      lcd.print(pump_minutes);
-      printDigits(pump_seconds); // use time fuction to print 2 digit seconds
+    lcd.setCursor(5,3);
+    if (digitalRead(pump_pin) == 0) lcd.print("ON ");
+    else lcd.print("OFF");
+    lcd.setCursor(16,3); lcd.print(pump_minutes); printDigits(pump_seconds); // use time fuction to print 2 digit seconds
 
     // ---- Display time
-      lcd.setCursor(14,0);
-      displayTime();
-
-    // --- Test display rotary encoder on pH line
-      //lcd.setCursor(13,2);
-      //displayRotaryEncoder();
+    lcd.setCursor(14,0); displayTime();
   }
 
 // ==================================================
@@ -656,37 +506,27 @@ void setup(void)
     // Initialize Sensors
     waterTempSensor.begin(); // initalize water temp sensor
     pinMode(tds_pin,INPUT); // setup TDS sensor pin
-    //ph.begin(); // starts the ph api 
   
     //Initalize RTC
     initalize_rtc();
-    setUptime();
     setTimeVariables();
 
     //Initalize Pump
-    pinMode(pump_pin, OUTPUT);
-    digitalWrite(pump_pin,HIGH);
+    pinMode(pump_pin, OUTPUT); digitalWrite(pump_pin,HIGH);
     pumpOffTimer.start(pump_init_delay*60*1000); // start initilization period
     pump_seconds = pumpOffTimer.remaining() /1000;
        
-    Serial.print("pump start timer : ");
-    Serial.println(pump_seconds);
+    Serial.print("pump start timer : "); Serial.println(pump_seconds);
 
     //Initalize Heater
-    pinMode(heater_pin, OUTPUT);
-    digitalWrite(heater_pin, HIGH);
+    pinMode(heater_pin, OUTPUT); digitalWrite(heater_pin, HIGH);
     heaterTimer.start(heater_delay *60 * 1000); // start heater initilization delay
     
     // Initalize dosing pumps
-    pinMode(ph_up_pin, OUTPUT);
-    digitalWrite(ph_up_pin, HIGH);
-    pinMode(ph_down_pin, OUTPUT);
-    digitalWrite(ph_down_pin, HIGH);
-
-    pinMode(nutrient_a_pin, OUTPUT);
-    digitalWrite(nutrient_a_pin, HIGH);
-    pinMode(nutrient_b_pin, OUTPUT);
-    digitalWrite(nutrient_b_pin, HIGH);
+    pinMode(ph_up_pin, OUTPUT); digitalWrite(ph_up_pin, HIGH);
+    pinMode(ph_down_pin, OUTPUT); digitalWrite(ph_down_pin, HIGH);
+    pinMode(nutrient_a_pin, OUTPUT); digitalWrite(nutrient_a_pin, HIGH);
+    pinMode(nutrient_b_pin, OUTPUT); digitalWrite(nutrient_b_pin, HIGH);
 
     // Initilize Rotary Encoder
     initilizeRotaryEncoder();
@@ -704,32 +544,32 @@ void setup(void)
 
 void loop(void)
 {
-  // Get readings
+  // --- READ SENSORS
   getWaterTemp(); // sets tempC and tempF
   getTDSReading(); // sets tds_value
   getPH();
 
-  //Heater
+  // --- HEATER CONTROL
   checkHeater();
 
-  // Time functions
+  // --- CLOCK
   setTimeVariables();
-  //printDate();
 
-  // Pump Timer
+  // --- PUMP TIMER
   pumpTimer(); // uncomment this to turn on functioning pump timer
 
-  // pH Balance
-  
+  // --- PH BALANCER
   //phDosingTimer(); // turn off dosing timer when finsihed
-    
 
-  //Nutrient Balance
+  // --- NUTRIENT BALANCER
   //nutrientDosing();
 
+  // --- ROTARY ENCODER
   loopRotaryEncoder();
 
+  // --- DISPLAY SCREEN
   displayMainscreenData();
+  
 }
 
 // ----------------- END MAIN LOOP ------------------------
