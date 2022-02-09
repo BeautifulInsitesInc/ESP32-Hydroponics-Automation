@@ -8,9 +8,18 @@
 #include <SPI.h>
 #include <millisDelay.h> // part of the SafeString Library
 #include <AiEsp32RotaryEncoder.h> //Rotary encodder library
+#include <WiFi.h>  // for ota update
+#include <AsyncTCP.h> // for ota update
+#include <ESPAsyncWebServer.h>// for ota update
+#include <AsyncElegantOTA.h>// for ota update
 
 LiquidCrystal_I2C lcd(0x27, 20, 4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 SimpleTimer timer;
+
+const char* ssid = "It burns when IP";
+const char* password = "cracker70";
+
+AsyncWebServer server(80);
 
 // ----- DEFAULT SETTINGS ------
 bool temp_in_c = true; // Tempurature defaults to C
@@ -29,7 +38,7 @@ float ph_dose_seconds = 3; // Time Dosing pump runs per dose in seconds;
 float ph_tolerance = 0.2; // how much can ph go from target before adjusting
 
 float ppm_set_level = 400; // Desired nutrient levle
-int ppm_delay_seconds = 60; //period btween readings/doses in minutes
+int ppm_delay_minutes = 60; //period btween readings/doses in minutes
 float ppm_dose_seconds = 3; // Time Dosing pump runs per dose
 
 // ----- SET PINS ------------------
@@ -45,14 +54,43 @@ const int heater_pin = 33; // heater relay
 const int ph_up_pin = 25; //pH up dosing pump
 const int ph_down_pin = 26; // pH down dosing pump
 
-const int nutrient_a_pin = 19; // nutrient part A dosing pump
-const int nutrient_b_pin = 18; // nutrient part B dosing pump
+const int ppm_a_pin = 19; // nutrient part A dosing pump
+const int ppm_b_pin = 18; // nutrient part B dosing pump
 
 #define ROTARY_ENCODER_A_PIN 36 // CLK pin
 #define ROTARY_ENCODER_B_PIN 39  // DT pin
 #define ROTARY_ENCODER_BUTTON_PIN 27 // SW (Button pin)
 #define ROTARY_ENCODER_VCC_PIN -1  // Set to -1 if connecting to VCC (otherwise any output in)
 #define ROTARY_ENCODER_STEPS 4
+
+// ==================================================
+// ===========  OTA UPDATES =========================
+// ==================================================
+void setupWebServer()
+  {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+    Serial.println("");
+
+    // Wait for connection
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      Serial.print(".");
+    }
+    Serial.println("");
+    Serial.print("Connected to ");
+    Serial.println(ssid);
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+      request->send(200, "text/plain", "Conceirge Automation Controler : Got to updates");
+    });
+    AsyncElegantOTA.begin(&server);    // Start ElegantOTA
+    server.begin();
+    Serial.println("HTTP server started");
+  }
+
 
 // *************** CALIBRATION FUNCTION ******************
 // To calibrate actual votage read at pin to the esp32 reading
@@ -296,40 +334,73 @@ void getTDSReading()
 int ph_dose_pin; //  used to pass motor pin to functions
 millisDelay phDoseTimer; // the dosing amount time
 millisDelay phDoseDelay; // the delay between doses - don't allow another dose before this
+millisDelay ppmDoseTimerA;
+millisDelay ppmDoseTimerB;
+millisDelay ppmDoseDelay;
+bool next_ppm_dose_b = false;
 
 void phDose(int motor_pin) // turns on the approiate ph dosing pump
   {
-    if (phDoseDelay.isRunning() == false)
-      {
-        digitalWrite(motor_pin, HIGH); // turn on dosing pump
-        phDoseTimer.start(ph_dose_seconds*1000); // start the pump
-        ph_dose_pin = motor_pin;
-        phDoseDelay.start(ph_delay_minutes * 60 * 1000); // start delay before next dose is allowed
-      }
-    else
-    {
-      Serial.print("Dose delay timer is still on");
-    }
+    digitalWrite(motor_pin, LOW); // turn on dosing pump
+    phDoseTimer.start(ph_dose_seconds*1000); // start the pump
+    ph_dose_pin = motor_pin;
+    phDoseDelay.start(ph_delay_minutes * 60 * 1000); // start delay before next dose is allowed
+    Serial.println("A dose has been started, timer is runnning");
   }
 
 void phBalanceCheck() //this is to be called from pump turning on function
   {
-    if (ph_value < ph_set_level - ph_tolerance) phDose(ph_up_pin); // ph is low start ph up pump
-    if (ph_value > ph_set_level + ph_tolerance) phDose(ph_down_pin); // ph is high turn on lowering pump
-  }
-void phDosingTimer()
-  {
-    if (phDoseTimer.justFinished()) // dosing is done, turn off, and start delay before next dose is allowed
+    if (phDoseTimer.justFinished()) digitalWrite(ph_dose_pin, HIGH);// dosing is done, turn off, and start delay before next dose is allowed
+    if (phDoseDelay.isRunning() == false)  
       {
-        digitalWrite(ph_dose_pin, LOW); // turn off dose motor
+        Serial.println("Dose timer is not running checking if adjustment is needed");
+        if (ph_value < ph_set_level - ph_tolerance) phDose(ph_up_pin); // ph is low start ph up pump
+        if (ph_value > ph_set_level + ph_tolerance) phDose(ph_down_pin); // ph is high turn on lowering pump
+      }
+    else Serial.print("Dose pause timer is runnning - not allowing another dose");
+  }
+
+void ppmDoseA()
+  {
+    digitalWrite(ppm_a_pin, LOW); // turn on ppm dosing pump
+    ppmDoseTimerA.start(ph_dose_seconds*1000); // start the pump
+    ppmDoseDelay.start(ppm_delay_minutes * 60 * 1000); // start delay before next dose is allowed
+    Serial.println("Nutrient dose A has been started, timer is runnning");
+    next_ppm_dose_b = true; // run ppm dose B next
+  }
+
+void ppmDoseB()
+  {
+    digitalWrite(ppm_b_pin, LOW); // turn on ppm dosing pump
+    ppmDoseTimerB.start(ph_dose_seconds*1000); // start the pump
+    ppmDoseDelay.start(ppm_delay_minutes * 60 * 1000); // start delay before next dose is allowed
+    Serial.println("Nutrient dose A has been started, timer is runnning");
+  }
+void ppmBlanceCheck()
+  {
+    // check if its time to turn off the doseing pump
+    if (ppmDoseTimerA.justFinished()) digitalWrite(ppm_a_pin, HIGH);// dosing is done, turn off, and start delay before next dose is allowed
+    if (ppmDoseTimerB.justFinished()) digitalWrite(ppm_b_pin, HIGH);// dosing is done, turn off, and start delay before next dose is allowed
+
+    // check if ppm dosing is required
+    if (ppmDoseDelay.isRunning()) //check if ppm dose delay is running
+      {
+        Serial.print("PPM Dose delay timer is running, not alloweed to dose yet");
+      }
+    else
+      {
+        if (next_ppm_dose_b == true) 
+          {
+            ppmDoseB();
+            next_ppm_dose_b = false;
+          }
+        
+        else 
+          {
+            if (tds_value < ppm_set_level) ppmDoseA();
+          }
       }
   }
-
-void nutrientDosing()
-  {
-    
-  }
-
 void doseTest()
   {
     Serial.print("Starting dosing test in 10 seconds");
@@ -345,14 +416,14 @@ void doseTest()
     digitalWrite(ph_down_pin, HIGH); Serial.println("PH down is HIGH");
     delay(1000);
 
-    digitalWrite(nutrient_a_pin, LOW); Serial.println("Nutrient A is LOW - motor on");
+    digitalWrite(ppm_a_pin, LOW); Serial.println("Nutrient A is LOW - motor on");
     delay(1000);
-    digitalWrite(nutrient_a_pin, HIGH); Serial.println("Nutrient A  is HIGH - motor off");
+    digitalWrite(ppm_a_pin, HIGH); Serial.println("Nutrient A  is HIGH - motor off");
     delay(1000);
 
-    digitalWrite(nutrient_b_pin, LOW); Serial.println("Nutrient B is LOW");
+    digitalWrite(ppm_b_pin, LOW); Serial.println("Nutrient B is LOW");
     delay(1000);
-    digitalWrite(nutrient_b_pin, HIGH); Serial.println("Nutrient B is HIGH");
+    digitalWrite(ppm_b_pin, HIGH); Serial.println("Nutrient B is HIGH");
     delay(1000);
   }
 
@@ -502,6 +573,9 @@ void setup(void)
     Serial.begin(115200);// start serial port 115200
     Serial.println("Starting Hydroponics Automation Controler");
     timer.run(); // Initiates SimpleTimer
+    setupWebServer();
+
+
 
     // Initialize Sensors
     waterTempSensor.begin(); // initalize water temp sensor
@@ -525,8 +599,8 @@ void setup(void)
     // Initalize dosing pumps
     pinMode(ph_up_pin, OUTPUT); digitalWrite(ph_up_pin, HIGH);
     pinMode(ph_down_pin, OUTPUT); digitalWrite(ph_down_pin, HIGH);
-    pinMode(nutrient_a_pin, OUTPUT); digitalWrite(nutrient_a_pin, HIGH);
-    pinMode(nutrient_b_pin, OUTPUT); digitalWrite(nutrient_b_pin, HIGH);
+    pinMode(ppm_a_pin, OUTPUT); digitalWrite(ppm_a_pin, HIGH);
+    pinMode(ppm_b_pin, OUTPUT); digitalWrite(ppm_b_pin, HIGH);
 
     // Initilize Rotary Encoder
     initilizeRotaryEncoder();
@@ -560,16 +634,16 @@ void loop(void)
 
   // --- PH BALANCER
   //phDosingTimer(); // turn off dosing timer when finsihed
+  phBalanceCheck();
 
   // --- NUTRIENT BALANCER
-  //nutrientDosing();
+  ppmBlanceCheck();
 
   // --- ROTARY ENCODER
   loopRotaryEncoder();
 
   // --- DISPLAY SCREEN
   displayMainscreenData();
-  
 }
 
 // ----------------- END MAIN LOOP ------------------------
