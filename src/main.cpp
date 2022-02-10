@@ -29,17 +29,17 @@ float heater_delay = .5; // Delay heater power on initiation in minutes
 
 bool twelve_hour_clock = true; // Clock format
 
-float pump_init_delay = 2; // Minutes - Initial time before starting the pump on startup
-float pump_on_time = 2; // Minutes - how long the pump stays on for
-float pump_off_time = 10; // Minutes -  how long the pump stays off for
+float pump_init_delay = .5; // Minutes - Initial time before starting the pump on startup
+float pump_on_time = 1; // Minutes - how long the pump stays on for
+float pump_off_time = 2; // Minutes -  how long the pump stays off for
 
 float ph_set_level = 6.2; // Desired pH level
-int ph_delay_minutes = .05;// miniumum period allowed between doses in minutes
+float ph_delay_minutes = 0.5;// miniumum period allowed between doses in minutes
 float ph_dose_seconds = 1; // Time Dosing pump runs per dose in seconds;
 float ph_tolerance = 0.2; // how much can ph go from target before adjusting
 
 float ppm_set_level = 400; // Desired nutrient levle
-int ppm_delay_minutes = .5; //period btween readings/doses in minutes
+float ppm_delay_minutes = .5; //period btween readings/doses in minutes
 float ppm_dose_seconds = 1; // Time Dosing pump runs per dose
 
 // ----- SET PINS ------------------
@@ -346,13 +346,14 @@ void phDose(int motor_pin) // turns on the approiate ph dosing pump
     phDoseTimer.start(ph_dose_seconds*1000); // start the pump
     ph_dose_pin = motor_pin;
     phDoseDelay.start(ph_delay_minutes * 60 * 1000); // start delay before next dose is allowed
-    Serial.println("A dose has been started, timer is runnning");
+    Serial.print("A ph dose has been started, timer is runnning. Dose pin : "); Serial.println(ph_dose_pin);
   }
 
 void phBalanceCheck() //this is to be called from pump turning on function
   {
     if (phDoseTimer.justFinished()) digitalWrite(ph_dose_pin, HIGH);// dosing is done, turn off, and start delay before next dose is allowed
-    if (phDoseDelay.isRunning() == false)  
+    Serial.print("phDoseDay.isRunning : "); Serial.print(phDoseDelay.isRunning()); Serial.print("justfinsihed : "); Serial.print(phDoseDelay.justFinished()); Serial.print("time left : "); Serial.println(phDoseDelay.remaining());
+    if (phDoseDelay.remaining()<=0)  
       {
         Serial.println("Dose timer is not running checking if adjustment is needed");
         if (ph_value < ph_set_level - ph_tolerance) phDose(ph_up_pin); // ph is low start ph up pump
@@ -614,7 +615,7 @@ void setup(void)
     displaySplashscreen();
     displayMainscreenstatic();
 
-    doseTest(); //used to test ph dosing motors
+    //SdoseTest(); //used to test ph dosing motors
   }
 
 // ====================================================
@@ -643,10 +644,10 @@ void loop(void)
     } 
 
   // --- PH BALANCER
-  phBalanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
+  //phBalanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
 
   // --- NUTRIENT BALANCER
-  ppmBlanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
+  //ppmBlanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
 
   // --- ROTARY ENCODER
   loopRotaryEncoder();
