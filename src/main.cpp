@@ -14,12 +14,14 @@
 #include <AsyncElegantOTA.h>// for ota update
 #include <SPIFFS.h> // for uploading webfiles to 
 //#include <Arduino_JSON.h> // to make handling json files easier
+#include <Adafruit_ADS1X15.h> // For Adafruit 4 channel ADC Breakout board SFD1015
 
 LiquidCrystal_I2C lcd(0x27, 20, 4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 SimpleTimer timer;
+Adafruit_ADS1115 ads; // Use this for the 16-bit version ADC
 
-//const char* ssid = "It burns when IP";
-const char* ssid = "TekSavvy";
+const char* ssid = "It burns when IP";
+//const char* ssid = "TekSavvy";
 const char* password = "cracker70";
 
 AsyncWebServer server(80);
@@ -38,7 +40,7 @@ float pump_off_time = 2; // Minutes -  how long the pump stays off for
 float ph_set_level = 6.2; // Desired pH level
 float ph_delay_minutes = 0.5;// miniumum period allowed between doses in minutes
 float ph_dose_seconds = 1; // Time Dosing pump runs per dose in seconds;
-float ph_tolerance = 0.2; // how much can ph go from target before adjusting
+float ph_tolerance = 0.5; // how much can ph go from target before adjusting
 
 float ppm_set_level = 400; // Desired nutrient level
 float ppm_delay_minutes = .5; //period btween readings/doses in minutes
@@ -49,9 +51,14 @@ float blink_delay = 1; // blinking indicator blink speed in seconds
 // ----- SET PINS ------------------
 // Pin 21 - SDA - RTC and LCD screen
 // Pin 22 - SCL - RTC and LCD screen
+const int tds_pin = 34; // TDS sensor pin - try 13 if 26 doesnt work - This is now using adc1
+//const int ph_pin = 35; // pH sensor pin
+
 OneWire oneWire(16);// Tempurature pin - Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
-const int tds_pin = 34; // TDS sensor pin - try 13 if 26 doesnt work
-const int ph_pin = 35; // pH sensor pin
+
+// ADC Board
+int16_t adc0; //pH sensor
+int16_t adc1; //TDS sensor
 
 const int pump_pin = 32; // pump relay
 const int heater_pin = 33; // heater relay
@@ -102,7 +109,7 @@ void testFileUpload() {
     return;
   }
   
-  File file = SPIFFS.open("/style.css");
+  File file = SPIFFS.open("/test.txt");
   if(!file){
     Serial.println("Failed to open file for reading");
     return;
@@ -110,7 +117,7 @@ void testFileUpload() {
   
   Serial.println("File Content:");
   while(file.available()){
-    Serial.write(file.read());
+    Serial.print(file.read());
   }
   file.close();
 }
@@ -196,7 +203,7 @@ void getWaterTemp()
     tempF = tempC * 9 / 5 + 32; // convert °C to °F
     if (tempC == DEVICE_DISCONNECTED_C) // Something is wrong, so return an error
       {
-        Serial.println("Houston, we have a problem");
+        //Serial.println("Houston, we have a problem");
         tempC = -100; 
         tempF = tempC;
       }
@@ -214,22 +221,28 @@ void checkHeater()
 // =======================================================
 // ======= PH SENSOR =====================================
 // =======================================================
+
+
 float ph_value; // actual pH value to display on screen
-float ph_calibration_adjustment = 0; // adjust this to calibrate
+float ph_calibration_adjustment = -1.26; // adjust this to calibrate
 //float calibration_value_ph = 21.34 + ph_calibration_adjustment;
 
 void getPH()
   {
     float voltage_input = 3.3; // voltage can be 5 or 3.3
-    float adc_resolution = 4095;
+    //float adc_resolution = 65535;
     unsigned long int average_reading ;
-    int buffer_array_ph[10],temp;
+    unsigned long int buffer_array_ph[10],temp;
+    //float average_volts; // average volt reading
+    
     float calculated_voltage; // voltage calculated from reading
-    float calibrated_voltage; // calculatd voltage adjusted using fuction
+    //float calibrated_voltage; // calculatd voltage adjusted using fuction
 
     for(int i=0;i<10;i++) // take 10 readings to get average
       { 
-        buffer_array_ph[i]=analogRead(ph_pin);
+        //buffer_array_ph[i]=analogRead(ph_pin);
+        buffer_array_ph[i]=ads.readADC_SingleEnded(0); // read the voltage
+        //buffer_array_ph[i]=ads.computeVolts(ads.readADC_SingleEnded(0));
         delay(30);
       }
     for(int i=0;i<9;i++)
@@ -250,18 +263,21 @@ void getPH()
         average_reading  += buffer_array_ph[i];
       }
     average_reading  = average_reading  / 6;
-    calculated_voltage = average_reading  * voltage_input / adc_resolution;
-    calibrated_voltage = (readADC_Cal(average_reading ))/1000;
-    ph_value = voltage_input * calibrated_voltage;
-    //ph_value = (-5.70 * calibrated_voltage) + calibration_value_ph; // Calculate the actual pH
+    //calculated_voltage = average_reading  * voltage_input / adc_resolution;
+    calculated_voltage = ads.computeVolts(average_reading);
+    //calibrated_voltage = (readADC_Cal(average_reading ))/1000;
+    ph_value = voltage_input * calculated_voltage + ph_calibration_adjustment;
+    //ph_value = (-5.70 * calculated_voltage) + ph_calibration_adjustment; // Calculate the actual pH
   
-    /*
+    
       Serial.print("    average_reading  = "); Serial.print(average_reading );
       Serial.print("      calculated_voltage = "); Serial.print(calculated_voltage);
-      Serial.print("     calibtraded_voltage = "); Serial.print(calibrated_voltage);
+     // Serial.print("     calibtraded_voltage = "); Serial.print(calibrated_voltage);
       Serial.print("     ph_value = "); Serial.println(ph_value);
+      adc0 =ads.readADC_SingleEnded(0);
+      Serial.print("   ADC Reading : "); Serial.print(adc0); Serial.print("   ADC voltage : "); Serial.println(ads.computeVolts(adc0));
       delay(0); // pause between serial monitor output - can be set to zero after testing
-    */
+    
   }
 
 // =======================================================
@@ -367,7 +383,7 @@ void phDose(int motor_pin) // turns on the approiate ph dosing pump
   {
     digitalWrite(motor_pin, LOW); // turn on dosing pump
     phDoseTimer.start(ph_dose_seconds*1000); // start the pump
-    phBlinkDelay.start(blink_delay); // start delay for blinking indicator
+    phBlinkDelay.start(blink_delay*1000); // start delay for blinking indicator
     ph_dose_pin = motor_pin;
     phDoseDelay.start(ph_delay_minutes * 60 * 1000); // start delay before next dose is allowed
     Serial.print("A ph dose has been started, timer is runnning. Dose pin : "); Serial.println(ph_dose_pin);
@@ -378,7 +394,7 @@ void phBalanceCheck() //this is to be called from pump turning on function
     if (phDoseTimer.justFinished()) digitalWrite(ph_dose_pin, HIGH);// dosing is done, turn off, and start delay before next dose is allowed
     if (phDoseDelay.remaining()<=0)  
       {
-        Serial.println("PH Dose timer is not running checking if adjustment is needed");
+        //Serial.println("PH Dose timer is not running checking if adjustment is needed");
         if (ph_value < ph_set_level - ph_tolerance)
           {
             phDose(ph_up_pin);
@@ -573,10 +589,10 @@ void displayMainscreenstatic()// Display the parts that don't change
 // --- Functions for main screen 
 void displayPhUorD() // used for flashing or displaying U or D
   {
-    if (ph_value < ph_set_level) {lcd.setCursor(17,0); lcd.print("U");}
-    else {lcd.setCursor(17,0); lcd.print("D")}
+    if (ph_value < ph_set_level) {lcd.setCursor(18,0); lcd.print("U");}
+    else {lcd.setCursor(18,0); lcd.print("D");}
   }
-
+// --- MAIN SCREEN --------------
 void displayMainscreenData() // Display the data that changes on main screen
   {
     // ---- PH READING
@@ -584,20 +600,26 @@ void displayMainscreenData() // Display the data that changes on main screen
     // Display brackets if blancing is happening
     if (ph_value < ph_set_level - ph_tolerance || ph_value > ph_set_level + ph_tolerance)
       {
-        lcd.setCursor(16,0); lcd.print("[ ]");
+        lcd.setCursor(17,0); lcd.print("[ ]");
         if (phDoseTimer.isRunning()) displayPhUorD();
         else // ph is in waiting period flash indicator
-          {if (phBlinkDelay.justFinished())
+          {
+            if (phBlinkDelay.justFinished())
             {if (ph_blink_on == false) 
               {
-                lcd.setCursor(17,0); lcd.print(" ");
+                lcd.setCursor(18,0); lcd.print(" ");
+                phBlinkDelay.repeat();
                 ph_blink_on = true;
               }
-              else {displayPhUorD(); ph_blink_on = false;}
+              else {
+                displayPhUorD();
+                ph_blink_on = false;
+                phBlinkDelay.repeat();
+              }
             }
           }
       }
-    else {lcd.setCursor(16,0); lcd.print("   ");}
+    else {lcd.setCursor(17,0); lcd.print("   ");}
     
     // --- TEMPURATURE
     lcd.setCursor(5,2);
@@ -631,6 +653,12 @@ void setup(void)
     Serial.println("Starting Hydroponics Automation Controler");
     timer.run(); // Initiates SimpleTimer
     setupWebServer();
+
+    // Check to see if ADS initalized
+    if (!ads.begin()) {
+      Serial.println("Failed to initialize ADS.");
+      while (1);
+  }
 
     // Initialize Sensors
     waterTempSensor.begin(); // initalize water temp sensor
@@ -698,7 +726,7 @@ void loop(void)
   displayMainscreenData();
   
   // --- PH BALANCER
-  phBalanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
+  //phBalanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
 
   // --- NUTRIENT BALANCER
   ppmBlanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
