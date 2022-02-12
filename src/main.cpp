@@ -12,6 +12,8 @@
 #include <AsyncTCP.h> // for ota update
 #include <ESPAsyncWebServer.h>// for ota update
 #include <AsyncElegantOTA.h>// for ota update
+#include <SPIFFS.h> // for uploading webfiles to 
+//#include <Arduino_JSON.h> // to make handling json files easier
 
 LiquidCrystal_I2C lcd(0x27, 20, 4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 SimpleTimer timer;
@@ -38,9 +40,11 @@ float ph_delay_minutes = 0.5;// miniumum period allowed between doses in minutes
 float ph_dose_seconds = 1; // Time Dosing pump runs per dose in seconds;
 float ph_tolerance = 0.2; // how much can ph go from target before adjusting
 
-float ppm_set_level = 400; // Desired nutrient levle
+float ppm_set_level = 400; // Desired nutrient level
 float ppm_delay_minutes = .5; //period btween readings/doses in minutes
 float ppm_dose_seconds = 1; // Time Dosing pump runs per dose
+
+float blink_delay = 1; // blinking indicator blink speed in seconds
 
 // ----- SET PINS ------------------
 // Pin 21 - SDA - RTC and LCD screen
@@ -85,14 +89,31 @@ void setupWebServer()
     Serial.println(WiFi.localIP());
 
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-      request->send(200, "text/plain", "Conceirge Automation Controler : Got to updates");
+      request->send(200, "text/plain", "hello world");
     });
     AsyncElegantOTA.begin(&server);    // Start ElegantOTA
     server.begin();
     Serial.println("HTTP server started");
   }
 
-
+void testFileUpload() {
+  if(!SPIFFS.begin(true)){
+    Serial.println("An Error has occurred while mounting SPIFFS");
+    return;
+  }
+  
+  File file = SPIFFS.open("/style.css");
+  if(!file){
+    Serial.println("Failed to open file for reading");
+    return;
+  }
+  
+  Serial.println("File Content:");
+  while(file.available()){
+    Serial.write(file.read());
+  }
+  file.close();
+}
 // *************** CALIBRATION FUNCTION ******************
 // To calibrate actual votage read at pin to the esp32 reading
 uint32_t readADC_Cal(int ADC_Raw)
@@ -335,6 +356,8 @@ void getTDSReading()
 int ph_dose_pin; //  used to pass motor pin to functions
 millisDelay phDoseTimer; // the dosing amount time
 millisDelay phDoseDelay; // the delay between doses - don't allow another dose before this
+millisDelay phBlinkDelay; // used to blink the indicator if dosing is happening
+
 millisDelay ppmDoseTimerA;
 millisDelay ppmDoseTimerB;
 millisDelay ppmDoseDelay;
@@ -344,6 +367,7 @@ void phDose(int motor_pin) // turns on the approiate ph dosing pump
   {
     digitalWrite(motor_pin, LOW); // turn on dosing pump
     phDoseTimer.start(ph_dose_seconds*1000); // start the pump
+    phBlinkDelay.start(blink_delay); // start delay for blinking indicator
     ph_dose_pin = motor_pin;
     phDoseDelay.start(ph_delay_minutes * 60 * 1000); // start delay before next dose is allowed
     Serial.print("A ph dose has been started, timer is runnning. Dose pin : "); Serial.println(ph_dose_pin);
@@ -352,11 +376,13 @@ void phDose(int motor_pin) // turns on the approiate ph dosing pump
 void phBalanceCheck() //this is to be called from pump turning on function
   {
     if (phDoseTimer.justFinished()) digitalWrite(ph_dose_pin, HIGH);// dosing is done, turn off, and start delay before next dose is allowed
-    Serial.print("phDoseDay.isRunning : "); Serial.print(phDoseDelay.isRunning()); Serial.print("justfinsihed : "); Serial.print(phDoseDelay.justFinished()); Serial.print("time left : "); Serial.println(phDoseDelay.remaining());
     if (phDoseDelay.remaining()<=0)  
       {
-        Serial.println("Dose timer is not running checking if adjustment is needed");
-        if (ph_value < ph_set_level - ph_tolerance) phDose(ph_up_pin); // ph is low start ph up pump
+        Serial.println("PH Dose timer is not running checking if adjustment is needed");
+        if (ph_value < ph_set_level - ph_tolerance)
+          {
+            phDose(ph_up_pin);
+          }  // ph is low start ph up pump
         if (ph_value > ph_set_level + ph_tolerance) phDose(ph_down_pin); // ph is high turn on lowering pump
       }
     //else Serial.println("Dose pause timer is runnning - not allowing another dose");
@@ -522,6 +548,7 @@ void loopRotaryEncoder()
 // =================================================
 // ========== LCD DISPLAY ==========================
 // =================================================
+bool ph_blink_on = false;
 
 void displaySplashscreen()// Display the splash screen
   {
@@ -543,11 +570,35 @@ void displayMainscreenstatic()// Display the parts that don't change
     lcd.setCursor(0,3); lcd.print("PMP:");
   }
 
+// --- Functions for main screen 
+void displayPhUorD() // used for flashing or displaying U or D
+  {
+    if (ph_value < ph_set_level) {lcd.setCursor(17,0); lcd.print("U");}
+    else {lcd.setCursor(17,0); lcd.print("D")}
+  }
+
 void displayMainscreenData() // Display the data that changes on main screen
   {
     // ---- PH READING
     lcd.setCursor(5,0); lcd.print(ph_value); 
-
+    // Display brackets if blancing is happening
+    if (ph_value < ph_set_level - ph_tolerance || ph_value > ph_set_level + ph_tolerance)
+      {
+        lcd.setCursor(16,0); lcd.print("[ ]");
+        if (phDoseTimer.isRunning()) displayPhUorD();
+        else // ph is in waiting period flash indicator
+          {if (phBlinkDelay.justFinished())
+            {if (ph_blink_on == false) 
+              {
+                lcd.setCursor(17,0); lcd.print(" ");
+                ph_blink_on = true;
+              }
+              else {displayPhUorD(); ph_blink_on = false;}
+            }
+          }
+      }
+    else {lcd.setCursor(16,0); lcd.print("   ");}
+    
     // --- TEMPURATURE
     lcd.setCursor(5,2);
     if (tempC == -100) lcd.print("(err)  ");
@@ -568,7 +619,7 @@ void displayMainscreenData() // Display the data that changes on main screen
     lcd.setCursor(16,3); lcd.print(pump_minutes); printDigits(pump_seconds); // use time fuction to print 2 digit seconds
 
     // ---- Display time
-    lcd.setCursor(14,0); displayTime();
+    //lcd.setCursor(14,0); displayTime();
   }
 
 // ==================================================
@@ -580,8 +631,6 @@ void setup(void)
     Serial.println("Starting Hydroponics Automation Controler");
     timer.run(); // Initiates SimpleTimer
     setupWebServer();
-
-
 
     // Initialize Sensors
     waterTempSensor.begin(); // initalize water temp sensor
@@ -616,6 +665,8 @@ void setup(void)
     displayMainscreenstatic();
 
     //SdoseTest(); //used to test ph dosing motors
+
+    testFileUpload();
   }
 
 // ====================================================
@@ -643,17 +694,18 @@ void loop(void)
       clear_screen = false;;
     } 
 
+  // --- DISPLAY SCREEN
+  displayMainscreenData();
+  
   // --- PH BALANCER
-  //phBalanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
+  phBalanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
 
   // --- NUTRIENT BALANCER
-  //ppmBlanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
+  ppmBlanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
 
   // --- ROTARY ENCODER
   loopRotaryEncoder();
 
-  // --- DISPLAY SCREEN
-  displayMainscreenData();
 }
 
 // ----------------- END MAIN LOOP ------------------------
