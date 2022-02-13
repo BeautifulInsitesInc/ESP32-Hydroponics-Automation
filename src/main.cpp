@@ -8,6 +8,7 @@
 #include <SPI.h>
 #include <millisDelay.h> // part of the SafeString Library
 #include <AiEsp32RotaryEncoder.h> //Rotary encodder library
+#include <AiEsp32RotaryEncoderNumberSelector.h> // helper to set the acceleration and limits of rotary encoder
 #include <WiFi.h>  // for ota update
 #include <AsyncTCP.h> // for ota update
 #include <ESPAsyncWebServer.h>// for ota update
@@ -15,10 +16,12 @@
 #include <SPIFFS.h> // for uploading webfiles to 
 //#include <Arduino_JSON.h> // to make handling json files easier
 #include <Adafruit_ADS1X15.h> // For Adafruit 4 channel ADC Breakout board SFD1015
+#include <DHT.h> // Humidity and tempurature sensor
 
 LiquidCrystal_I2C lcd(0x27, 20, 4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 SimpleTimer timer;
 Adafruit_ADS1115 ads; // Use this for the 16-bit version ADC
+
 
 const char* ssid = "It burns when IP";
 //const char* ssid = "TekSavvy";
@@ -53,10 +56,13 @@ float blink_delay = 1; // blinking indicator blink speed in seconds
 // Pin 22 - SCL - RTC and LCD screen
 //const int tds_pin = 34; // TDS sensor pin - try 13 if 26 doesnt work - This is now using adc1
 //const int ph_pin = 35; // pH sensor pin
+#define dht_pin 31 // Humidity and air tempurature sensor
+//#define dht_pin 34 // Humidity and air tempurature sensor
 OneWire oneWire(16);// Tempurature pin - Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
 // ADC Board
 int16_t adc0; //pH sensor
 int16_t adc1; //TDS sensor
+
 
 const int pump_pin = 32; // pump relay
 const int heater_pin = 33; // heater relay
@@ -127,6 +133,43 @@ uint32_t readADC_Cal(int ADC_Raw)
   esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &adc_chars);
   return(esp_adc_cal_raw_to_voltage(ADC_Raw, &adc_chars));
 }
+
+// =======================================================
+// ========== DHT Sensor ==============================
+// =======================================================
+#define DHTTYPE DHT11   // DHT 11
+DHT dht(dht_pin, DHTTYPE);
+millisDelay dhtDelay;
+float dht_temp;
+float dht_humidity;
+int test_pin = 35;
+pinMode(35,INPUT); // INPUT_PULLUP INPUT_PULLDOWN
+pinMode(34,INPUT); // INPUT_PULLUP INPUT_PULLDOWN
+
+void dhtIntilization()
+  {
+    dht.begin(); // initialize humidity sensor
+    dhtDelay.start(2000); // sensor can only sample every 1 second
+    Serial.print("dht Sensor initilized");
+  }
+
+void dhtReadings()
+  {
+    if (dhtDelay.justFinished())
+      {
+        dht_temp = dht.readTemperature();
+        dht_humidity = dht.readHumidity();
+        Serial.print("reading from pin 34 :"); Serial.print(digitalRead(34));
+        Serial.print("reading from pin 35 :"); Serial.print(digitalRead(35));
+        Serial.print("   Temperature = "); Serial.print(dht_temp);
+        Serial.print("       Humidity = "); Serial.println(dht_humidity);
+        dhtDelay.repeat();
+
+      }
+    
+    
+  }
+
 
 // =======================================================
 // ========== RTC Functions ==============================
@@ -333,7 +376,7 @@ void getTDSReading()
         float compensationVolatge=average_voltage/compensationCoefficient;  //temperature compensation
         tds_value=(133.42*compensationVolatge*compensationVolatge*compensationVolatge - 255.86*compensationVolatge*compensationVolatge + 857.39*compensationVolatge)*0.5; //convert voltage value to tds value
       
-        
+        /*
         Serial.print("Average Read: "); Serial.print(average_reading);
         Serial.print("   average Voltage: "); Serial.print(average_voltage);
         Serial.print("   Temp: "); Serial.print(temperature);
@@ -343,7 +386,7 @@ void getTDSReading()
         Serial.print("current read : "); Serial.print(ads.readADC_SingleEnded(1));
         Serial.print("   current voltage : "); Serial.println(ads.computeVolts(ads.readADC_SingleEnded(1)));
         delay(0);
-      
+        */
       }
   }
 
@@ -505,6 +548,7 @@ void pumpTimer()
 // ===========  ROTARY ENCODER ======================
 // ==================================================
 AiEsp32RotaryEncoder rotaryEncoder = AiEsp32RotaryEncoder(ROTARY_ENCODER_A_PIN, ROTARY_ENCODER_B_PIN, ROTARY_ENCODER_BUTTON_PIN, -1, ROTARY_ENCODER_STEPS);
+AiEsp32RotaryEncoderNumberSelector numberSelector = AiEsp32RotaryEncoderNumberSelector();
 
 void IRAM_ATTR readEncoderISR() {rotaryEncoder.readEncoder_ISR();}
 
@@ -512,6 +556,7 @@ void initilizeRotaryEncoder()
   {
     rotaryEncoder.begin();
     rotaryEncoder.setup(readEncoderISR);
+    
     //rotaryEncoder.setBoundaries(0, 1000, false); //minValue, maxValue, circleValues true|false (when max go to min and vice versa)
     rotaryEncoder.setAcceleration(0); //or set the value - larger number = more accelearation; 0 or 1 means disabled acceleration
   }
@@ -644,6 +689,7 @@ void setup(void)
 
     // Initialize Sensors
     waterTempSensor.begin(); // initalize water temp sensor
+    dhtIntilization();
   
     //Initalize RTC
     initalize_rtc();
@@ -681,7 +727,6 @@ void setup(void)
 // ====================================================
 // ===========  MAIN LOOP =============================
 // ====================================================
-
 void loop(void)
 {
   // --- READ SENSORS
@@ -705,6 +750,9 @@ void loop(void)
 
   // --- DISPLAY SCREEN
   displayMainscreenData();
+
+  // --- HUMIDITY SENSOR
+  dhtReadings();
   
   // --- PH BALANCER
   //phBalanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
