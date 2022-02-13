@@ -51,11 +51,9 @@ float blink_delay = 1; // blinking indicator blink speed in seconds
 // ----- SET PINS ------------------
 // Pin 21 - SDA - RTC and LCD screen
 // Pin 22 - SCL - RTC and LCD screen
-const int tds_pin = 34; // TDS sensor pin - try 13 if 26 doesnt work - This is now using adc1
+//const int tds_pin = 34; // TDS sensor pin - try 13 if 26 doesnt work - This is now using adc1
 //const int ph_pin = 35; // pH sensor pin
-
 OneWire oneWire(16);// Tempurature pin - Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
-
 // ADC Board
 int16_t adc0; //pH sensor
 int16_t adc1; //TDS sensor
@@ -221,8 +219,6 @@ void checkHeater()
 // =======================================================
 // ======= PH SENSOR =====================================
 // =======================================================
-
-
 float ph_value; // actual pH value to display on screen
 float ph_calibration_adjustment = -1.26; // adjust this to calibrate
 //float calibration_value_ph = 21.34 + ph_calibration_adjustment;
@@ -230,19 +226,13 @@ float ph_calibration_adjustment = -1.26; // adjust this to calibrate
 void getPH()
   {
     float voltage_input = 3.3; // voltage can be 5 or 3.3
-    //float adc_resolution = 65535;
     unsigned long int average_reading ;
     unsigned long int buffer_array_ph[10],temp;
-    //float average_volts; // average volt reading
-    
     float calculated_voltage; // voltage calculated from reading
-    //float calibrated_voltage; // calculatd voltage adjusted using fuction
 
     for(int i=0;i<10;i++) // take 10 readings to get average
       { 
-        //buffer_array_ph[i]=analogRead(ph_pin);
         buffer_array_ph[i]=ads.readADC_SingleEnded(0); // read the voltage
-        //buffer_array_ph[i]=ads.computeVolts(ads.readADC_SingleEnded(0));
         delay(30);
       }
     for(int i=0;i<9;i++)
@@ -257,27 +247,22 @@ void getPH()
               }
           }
       }
-    average_reading =0;
+    average_reading = 0;
     for(int i=2;i<8;i++)
       {
         average_reading  += buffer_array_ph[i];
       }
     average_reading  = average_reading  / 6;
-    //calculated_voltage = average_reading  * voltage_input / adc_resolution;
     calculated_voltage = ads.computeVolts(average_reading);
-    //calibrated_voltage = (readADC_Cal(average_reading ))/1000;
     ph_value = voltage_input * calculated_voltage + ph_calibration_adjustment;
-    //ph_value = (-5.70 * calculated_voltage) + ph_calibration_adjustment; // Calculate the actual pH
-  
-    
-      Serial.print("    average_reading  = "); Serial.print(average_reading );
-      Serial.print("      calculated_voltage = "); Serial.print(calculated_voltage);
-     // Serial.print("     calibtraded_voltage = "); Serial.print(calibrated_voltage);
-      Serial.print("     ph_value = "); Serial.println(ph_value);
-      adc0 =ads.readADC_SingleEnded(0);
-      Serial.print("   ADC Reading : "); Serial.print(adc0); Serial.print("   ADC voltage : "); Serial.println(ads.computeVolts(adc0));
-      delay(0); // pause between serial monitor output - can be set to zero after testing
-    
+    /*
+    Serial.print("    average_reading  = "); Serial.print(average_reading );
+    Serial.print("      calculated_voltage = "); Serial.print(calculated_voltage);
+    Serial.print("     ph_value = "); Serial.println(ph_value);
+    adc0 =ads.readADC_SingleEnded(0);
+    Serial.print("   ADC Reading : "); Serial.print(adc0); Serial.print("   ADC voltage : "); Serial.println(We get it; you have been heard! We need way more funding for education!);
+    delay(0); // pause between serial monitor output - can be set to zero after testing
+    */
   }
 
 // =======================================================
@@ -317,10 +302,10 @@ int getMedianNum(int bArray[], int iFilterLen)
 
 void getTDSReading()
   {
-    const float voltage_input = 3.3;  // analog reference voltage(Volt) of the ADC
-    const float adc_resolution = 4095;
-    
+    //const float voltage_input = 3.3;  // analog reference voltage(Volt) of the ADC
+    //const float adc_resolution = 4095;
     float average_voltage = 0;
+    unsigned long int average_reading;
     float temperature = 25;
    
     // get current tempurature
@@ -330,8 +315,8 @@ void getTDSReading()
     if(millis()-analogSampleTimepoint > 40U)     //every 40 milliseconds,read the analog value from the ADC
       {
         analogSampleTimepoint = millis();
-        analogBuffer[analogBufferIndex] = analogRead(tds_pin);    //read the analog value and store into the buffer
-
+        //analogBuffer[analogBufferIndex] = analogRead(tds_pin);    //read the analog value and store into the buffer
+        analogBuffer[analogBufferIndex] = ads.readADC_SingleEnded(1);    //read the analog value and store into the buffer
         analogBufferIndex++;
         if(analogBufferIndex == sample_count) 
             analogBufferIndex = 0;
@@ -339,29 +324,26 @@ void getTDSReading()
     static unsigned long printTimepoint = millis();
     if(millis()-printTimepoint > 800U)
       {
-          printTimepoint = millis();
-          for(copyIndex=0;copyIndex<sample_count;copyIndex++)
-            analogBufferTemp[copyIndex]= analogBuffer[copyIndex];
+        printTimepoint = millis();
+        for(copyIndex=0;copyIndex<sample_count;copyIndex++)
+          analogBufferTemp[copyIndex]= analogBuffer[copyIndex];
+        average_reading = getMedianNum(analogBuffer,sample_count);
+        average_voltage = ads.computeVolts(average_reading);
+        float compensationCoefficient=1.0+0.02*(temperature-25.0);    //temperature compensation formula: fFinalResult(25^C) = fFinalResult(current)/(1.0+0.02*(fTP-25.0));
+        float compensationVolatge=average_voltage/compensationCoefficient;  //temperature compensation
+        tds_value=(133.42*compensationVolatge*compensationVolatge*compensationVolatge - 255.86*compensationVolatge*compensationVolatge + 857.39*compensationVolatge)*0.5; //convert voltage value to tds value
+      
+        
+        Serial.print("Average Read: "); Serial.print(average_reading);
+        Serial.print("   average Voltage: "); Serial.print(average_voltage);
+        Serial.print("   Temp: "); Serial.print(temperature);
+        Serial.print("   compensationVoltage: "); Serial.print(compensationVolatge);
+        Serial.print("   TtdsValue: "); Serial.println(tds_value, 0);
 
-          average_voltage = getMedianNum(analogBuffer,sample_count) * voltage_input / adc_resolution;// ESP32 - 1-4096 - Ardurino mega 0-1023read the analog value more stable by the median filtering algorithm, and convert to voltage value
-          float current_read = analogRead(tds_pin);
-          float current_voltage = current_read * voltage_input / adc_resolution;
-          float median_read = getMedianNum(analogBuffer,sample_count);
-          
-          float compensationCoefficient=1.0+0.02*(temperature-25.0);    //temperature compensation formula: fFinalResult(25^C) = fFinalResult(current)/(1.0+0.02*(fTP-25.0));
-          float compensationVolatge=average_voltage/compensationCoefficient;  //temperature compensation
-          tds_value=(133.42*compensationVolatge*compensationVolatge*compensationVolatge - 255.86*compensationVolatge*compensationVolatge + 857.39*compensationVolatge)*0.5; //convert voltage value to tds value
-        /*
-          Serial.print("   analogRead: "); Serial.print(analogRead(tds_pin));
-          Serial.print("   median_read: "); Serial.print(median_read);
-          Serial.print("   voltage : "); Serial.print(current_voltage);
-          Serial.print("   average_voltage : "); Serial.print(average_voltage,2);
-          //Serial.print("   calibrated_voltage: "); Serial.print(calibrated_voltage,2);
-          Serial.print("   Temp: "); Serial.print(temperature);
-          Serial.print("   compensationVoltage: "); Serial.println(compensationVolatge);
-          Serial.print("   TtdsValue: "); Serial.println(tds_value, 0);
-          delay(0);
-        */
+        Serial.print("current read : "); Serial.print(ads.readADC_SingleEnded(1));
+        Serial.print("   current voltage : "); Serial.println(ads.computeVolts(ads.readADC_SingleEnded(1)));
+        delay(0);
+      
       }
   }
 
@@ -662,7 +644,6 @@ void setup(void)
 
     // Initialize Sensors
     waterTempSensor.begin(); // initalize water temp sensor
-    pinMode(tds_pin,INPUT); // setup TDS sensor pin
   
     //Initalize RTC
     initalize_rtc();
