@@ -22,8 +22,8 @@ LiquidCrystal_I2C lcd(0x27, 20, 4);  // set the LCD address to 0x27 for a 16 cha
 SimpleTimer timer;
 Adafruit_ADS1115 ads; // Use this for the 16-bit version ADC
 
-
-const char* ssid = "It burns when IP";
+const char* ssid = "Office 2.4";
+//const char* ssid = "Free Viruses";
 //const char* ssid = "TekSavvy";
 const char* password = "cracker70";
 
@@ -33,6 +33,7 @@ AsyncWebServer server(80);
 bool temp_in_c = true; // Tempurature defaults to C
 float heater = 25; // Tempurature that shuts off the heater
 float heater_delay = .5; // Delay heater power on initiation in minutes
+float moisture_delay = 2; // Delay between moisture sensing
 
 bool twelve_hour_clock = true; // Clock format
 
@@ -56,20 +57,18 @@ float blink_delay = 1; // blinking indicator blink speed in seconds
 // Pin 22 - SCL - RTC and LCD screen
 //const int tds_pin = 34; // TDS sensor pin - try 13 if 26 doesnt work - This is now using adc1
 //const int ph_pin = 35; // pH sensor pin
-#define dht_pin 31 // Humidity and air tempurature sensor
-//#define dht_pin 34 // Humidity and air tempurature sensor
+#define dht_pin 17 // Humidity and air tempurature sensor
 OneWire oneWire(16);// Tempurature pin - Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
 // ADC Board
 int16_t adc0; //pH sensor
 int16_t adc1; //TDS sensor
-
+int16_t adc2; //Moisture Sensor
 
 const int pump_pin = 32; // pump relay
 const int heater_pin = 33; // heater relay
 
 const int ph_up_pin = 25; //pH up dosing pump
 const int ph_down_pin = 26; // pH down dosing pump
-
 const int ppm_a_pin = 19; // nutrient part A dosing pump
 const int ppm_b_pin = 18; // nutrient part B dosing pump
 
@@ -135,35 +134,57 @@ uint32_t readADC_Cal(int ADC_Raw)
 }
 
 // =======================================================
+// ======= MOISTURE SENSOR ====================
+// =======================================================
+int moisture_value;
+millisDelay moistureDelay;
+
+void moistureReading()
+  {
+    if (moistureDelay.justFinished())
+    {
+      int16_t reading = ads.readADC_SingleEnded(2);
+      moisture_value = map(reading, 9500, 0, 100, 0);
+      moistureDelay.repeat();
+      //Serial.print("reading : "); Serial.print(reading);
+      //Serial.print("     moisture_value = "); Serial.print(moisture_value); Serial.println("%");
+
+    }
+    
+  }
+
+// =======================================================
 // ========== DHT Sensor ==============================
 // =======================================================
 #define DHTTYPE DHT11   // DHT 11
 DHT dht(dht_pin, DHTTYPE);
 millisDelay dhtDelay;
-float dht_temp;
-float dht_humidity;
-int test_pin = 35;
-pinMode(35,INPUT); // INPUT_PULLUP INPUT_PULLDOWN
-pinMode(34,INPUT); // INPUT_PULLUP INPUT_PULLDOWN
+float dht_tempC, dht_tempF, dht_humidity;
 
 void dhtIntilization()
   {
     dht.begin(); // initialize humidity sensor
-    dhtDelay.start(2000); // sensor can only sample every 1 second
+    dhtDelay.start(3000); // sensor can only sample every 1 second
     Serial.print("dht Sensor initilized");
+    pinMode(dht_pin, INPUT_PULLUP);
+    //pinMode(35,INPUT); // INPUT_PULLUP INPUT_PULLDOWN
+    //pinMode(34,INPUT); // INPUT_PULLUP INPUT_PULLDOWN
   }
 
 void dhtReadings()
   {
     if (dhtDelay.justFinished())
       {
-        dht_temp = dht.readTemperature();
+        dht_tempC = dht.readTemperature();
+        dht_tempF = dht.readTemperature(true);
         dht_humidity = dht.readHumidity();
+        /*
         Serial.print("reading from pin 34 :"); Serial.print(digitalRead(34));
-        Serial.print("reading from pin 35 :"); Serial.print(digitalRead(35));
-        Serial.print("   Temperature = "); Serial.print(dht_temp);
+        Serial.print("   reading from pin 35 :"); Serial.print(digitalRead(35));
+        Serial.print("   Temperature = "); Serial.print(dht_tempC); Serial.print("       F: ");Serial.print(dht_tempF);
         Serial.print("       Humidity = "); Serial.println(dht_humidity);
         dhtDelay.repeat();
+        */
 
       }
     
@@ -298,6 +319,9 @@ void getPH()
     average_reading  = average_reading  / 6;
     calculated_voltage = ads.computeVolts(average_reading);
     ph_value = voltage_input * calculated_voltage + ph_calibration_adjustment;
+    //if (ph_value < 2 || ph_value > 11) ph_value = -10; // make this an error condition
+
+
     /*
     Serial.print("    average_reading  = "); Serial.print(average_reading );
     Serial.print("      calculated_voltage = "); Serial.print(calculated_voltage);
@@ -393,7 +417,6 @@ void getTDSReading()
 // =================================================
 // ========== DOSING PUMPS =========================
 // =================================================
-//bool ph_up_dose = false; // is it ph up or down?
 int ph_dose_pin; //  used to pass motor pin to functions
 millisDelay phDoseTimer; // the dosing amount time
 millisDelay phDoseDelay; // the delay between doses - don't allow another dose before this
@@ -623,7 +646,7 @@ void displayPhUorD() // used for flashing or displaying U or D
 void displayMainscreenData() // Display the data that changes on main screen
   {
     // ---- PH READING
-    lcd.setCursor(5,0); lcd.print(ph_value); 
+    lcd.setCursor(4,0); lcd.print(ph_value); 
     // Display brackets if blancing is happening
     if (ph_value < ph_set_level - ph_tolerance || ph_value > ph_set_level + ph_tolerance)
       {
@@ -649,7 +672,7 @@ void displayMainscreenData() // Display the data that changes on main screen
     else {lcd.setCursor(17,0); lcd.print("   ");}
     
     // --- TEMPURATURE
-    lcd.setCursor(5,2);
+    lcd.setCursor(4,2);
     if (tempC == -100) lcd.print("(err)  ");
     else {if (temp_in_c == true) {lcd.print(tempC);lcd.print((char)223);lcd.print("C"); }
           else {lcd.print(tempF); lcd.print((char)223); lcd.print("F");}}
@@ -657,12 +680,12 @@ void displayMainscreenData() // Display the data that changes on main screen
     else{lcd.setCursor(17,2); lcd.print("   ");}
 
     // Display TDS reading
-    lcd.setCursor(5,1);
+    lcd.setCursor(4,1);
     if (tds_value > 1000) lcd.print("(error)    ");
     else {lcd.print(tds_value); lcd.print(" PPM    ");}
    
     //----Display  Pump status
-    lcd.setCursor(5,3);
+    lcd.setCursor(4,3);
     if (digitalRead(pump_pin) == 0) lcd.print("ON ");
     else lcd.print("OFF");
     lcd.setCursor(16,3); lcd.print(pump_minutes); printDigits(pump_seconds); // use time fuction to print 2 digit seconds
@@ -670,6 +693,37 @@ void displayMainscreenData() // Display the data that changes on main screen
     // ---- Display time
     //lcd.setCursor(14,0); displayTime();
   }
+
+void displayTempurature()
+  {
+    lcd.clear();
+    lcd.setCursor(5,0); lcd.print("Tempurature");
+  }
+
+void displayPH()
+  {
+    lcd.clear();
+    lcd.setCursor(5,0); lcd.print("PH");
+  }
+
+void displayTDS()
+  {
+    lcd.clear();
+    lcd.setCursor(5,0); lcd.print("TDS");
+  }
+
+void displayPump()
+  {
+    lcd.clear();
+    lcd.setCursor(5,0); lcd.print("Pump");
+  }
+
+void displaySettings()
+  {
+    lcd.clear();
+    lcd.setCursor(5,0); lcd.print("Settings");
+  }
+
 
 // ==================================================
 // ===========  MAIN SETUP ==========================
@@ -690,6 +744,9 @@ void setup(void)
     // Initialize Sensors
     waterTempSensor.begin(); // initalize water temp sensor
     dhtIntilization();
+
+    // MOISTURE SENSOR
+    moistureDelay.start(moisture_delay*1000); // change to minutes later
   
     //Initalize RTC
     initalize_rtc();
@@ -754,6 +811,9 @@ void loop(void)
   // --- HUMIDITY SENSOR
   dhtReadings();
   
+  // - MOISTURE SENSOR
+  moistureReading();
+
   // --- PH BALANCER
   //phBalanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
 
