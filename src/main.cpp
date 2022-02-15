@@ -133,6 +133,12 @@ uint32_t readADC_Cal(int ADC_Raw)
   return(esp_adc_cal_raw_to_voltage(ADC_Raw, &adc_chars));
 }
 
+float convertCtoF(float c)
+  {
+    float f = c*1.8 + 32;
+    return f;
+  }
+
 // =======================================================
 // ======= MOISTURE SENSOR ====================
 // =======================================================
@@ -159,7 +165,9 @@ void moistureReading()
 #define DHTTYPE DHT11   // DHT 11
 DHT dht(dht_pin, DHTTYPE);
 millisDelay dhtDelay;
-float dht_tempC, dht_tempF, dht_humidity;
+float dht_tempC = 0;
+float dht_tempF = 0;
+float dht_humidity = 0;
 
 void dhtIntilization()
   {
@@ -178,20 +186,20 @@ void dhtReadings()
         dht_tempC = dht.readTemperature();
         dht_tempF = dht.readTemperature(true);
         dht_humidity = dht.readHumidity();
-        /*
+        dhtDelay.repeat();
+        
         Serial.print("reading from pin 34 :"); Serial.print(digitalRead(34));
         Serial.print("   reading from pin 35 :"); Serial.print(digitalRead(35));
         Serial.print("   Temperature = "); Serial.print(dht_tempC); Serial.print("       F: ");Serial.print(dht_tempF);
         Serial.print("       Humidity = "); Serial.println(dht_humidity);
-        dhtDelay.repeat();
-        */
-
+        
       }
-    
-    
   }
-
-
+void displayDHTmain()
+  {
+    if (temp_in_c == true) {lcd.print(" "); lcd.print(dht_tempC,0); lcd.print(" "); lcd.print(dht_humidity,0); lcd.print("%");}
+    else {lcd.print(" "); lcd.print(dht_tempF,0); lcd.print(" "); lcd.print(dht_humidity,0); lcd.print("%");}
+  }
 // =======================================================
 // ========== RTC Functions ==============================
 // =======================================================
@@ -266,7 +274,7 @@ void getWaterTemp()
     if (tempC == DEVICE_DISCONNECTED_C) // Something is wrong, so return an error
       {
         //Serial.println("Houston, we have a problem");
-        tempC = -100; 
+        tempC = -1; 
         tempF = tempC;
       }
   }
@@ -481,6 +489,7 @@ void ppmBlanceCheck()
       }
     else
       {
+        Serial.print("PPM dose delay timer is not running, dosing can happen");
         if (next_ppm_dose_b == true) 
           {
             ppmDoseB();
@@ -491,6 +500,7 @@ void ppmBlanceCheck()
         else 
           {
             if (tds_value < ppm_set_level) ppmDoseA();
+            next_ppm_dose_b = true;
             Serial.println("Sending Dose A");
           }
       }
@@ -501,22 +511,22 @@ void doseTest()
     delay(5);
     
     digitalWrite(ph_up_pin, LOW); Serial.println("PH UP is LOW - motor on");
-    delay(1000);
+    delay(500);
     digitalWrite(ph_up_pin, HIGH); Serial.println("PH UP is HIGH - motor off");
     delay(1000);
 
     digitalWrite(ph_down_pin, LOW); Serial.println("PH down is LOW");
-    delay(1000);
+    delay(500);
     digitalWrite(ph_down_pin, HIGH); Serial.println("PH down is HIGH");
     delay(1000);
 
     digitalWrite(ppm_a_pin, LOW); Serial.println("Nutrient A is LOW - motor on");
-    delay(1000);
+    delay(500);
     digitalWrite(ppm_a_pin, HIGH); Serial.println("Nutrient A  is HIGH - motor off");
     delay(1000);
 
     digitalWrite(ppm_b_pin, LOW); Serial.println("Nutrient B is LOW");
-    delay(1000);
+    delay(500);
     digitalWrite(ppm_b_pin, HIGH); Serial.println("Nutrient B is HIGH");
     delay(1000);
   }
@@ -647,10 +657,13 @@ void displayMainscreenData() // Display the data that changes on main screen
   {
     // ---- PH READING
     lcd.setCursor(4,0); lcd.print(ph_value); 
+    lcd.setCursor(12,0); lcd.print("["); lcd.print(ph_set_level,1); lcd.print("]");
     // Display brackets if blancing is happening
+    lcd.setCursor(17,0); lcd.print("["); 
+    lcd.setCursor(19,0); lcd.print("]");
     if (ph_value < ph_set_level - ph_tolerance || ph_value > ph_set_level + ph_tolerance)
       {
-        lcd.setCursor(17,0); lcd.print("[ ]");
+        
         if (phDoseTimer.isRunning()) displayPhUorD();
         else // ph is in waiting period flash indicator
           {
@@ -673,11 +686,25 @@ void displayMainscreenData() // Display the data that changes on main screen
     
     // --- TEMPURATURE
     lcd.setCursor(4,2);
-    if (tempC == -100) lcd.print("(err)  ");
-    else {if (temp_in_c == true) {lcd.print(tempC);lcd.print((char)223);lcd.print("C"); }
-          else {lcd.print(tempF); lcd.print((char)223); lcd.print("F");}}
-    if (digitalRead(heater_pin) == 0) {lcd.setCursor(17,2); lcd.print("[H]");}
-    else{lcd.setCursor(17,2); lcd.print("   ");}
+    if (tempC == -10) {lcd.print("(err)  ");}// -1 is an error
+    else 
+      {
+        lcd.setCursor(4,2);
+        if (temp_in_c == true) {
+          lcd.print(tempC,1); lcd.print((char)223); lcd.print("C");
+          lcd.setCursor(14,2); lcd.print(heater,0);
+        }
+        else {
+          lcd.print(tempF,1); lcd.print((char)223); lcd.print("F");
+          lcd.setCursor(14,2); lcd.print(convertCtoF(heater),0);
+        }
+      }
+    lcd.setCursor(13,2); lcd.print("[");
+    lcd.setCursor(16,2); lcd.print("]");
+    lcd.setCursor(17,2); lcd.print("["); // print the heater brackets
+    lcd.setCursor(19,2); lcd.print("]");
+    if (digitalRead(heater_pin) == 0) {lcd.setCursor(18,2); lcd.print("H");}
+    else {lcd.setCursor(18,2); lcd.print(" ");}
 
     // Display TDS reading
     lcd.setCursor(4,1);
@@ -768,6 +795,8 @@ void setup(void)
     pinMode(ph_down_pin, OUTPUT); digitalWrite(ph_down_pin, HIGH);
     pinMode(ppm_a_pin, OUTPUT); digitalWrite(ppm_a_pin, HIGH);
     pinMode(ppm_b_pin, OUTPUT); digitalWrite(ppm_b_pin, HIGH);
+    ppmDoseDelay.start(ppm_delay_minutes*60*100); // start delay before ppm dosing can start
+    phDoseDelay.start(ph_delay_minutes*60*10); // start ph delay before dosing can start
 
     // Initilize Rotary Encoder
     initilizeRotaryEncoder();
@@ -776,7 +805,7 @@ void setup(void)
     displaySplashscreen();
     displayMainscreenstatic();
 
-    //SdoseTest(); //used to test ph dosing motors
+    //doseTest(); //used to test ph dosing motors
 
     testFileUpload();
   }
