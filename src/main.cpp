@@ -348,7 +348,6 @@ void getPH()
     ph_value = voltage_input * calculated_voltage + ph_calibration_adjustment;
     //if (ph_value < 2 || ph_value > 11) ph_value = -10; // make this an error condition
 
-
     /*
     Serial.print("    average_reading  = "); Serial.print(average_reading );
     Serial.print("      calculated_voltage = "); Serial.print(calculated_voltage);
@@ -632,49 +631,7 @@ void doseTest()
     delay(1000);
   }
 
-// ==================================================
-// ===========  ROTARY ENCODER ======================
-// ==================================================
-AiEsp32RotaryEncoder rotaryEncoder = AiEsp32RotaryEncoder(ROTARY_ENCODER_A_PIN, ROTARY_ENCODER_B_PIN, ROTARY_ENCODER_BUTTON_PIN, -1, ROTARY_ENCODER_STEPS);
-AiEsp32RotaryEncoderNumberSelector numberSelector = AiEsp32RotaryEncoderNumberSelector();
 
-void IRAM_ATTR readEncoderISR() {rotaryEncoder.readEncoder_ISR();}
-
-void initilizeRotaryEncoder()
-  {
-    rotaryEncoder.begin();
-    rotaryEncoder.setup(readEncoderISR);
-    
-    //rotaryEncoder.setBoundaries(0, 1000, false); //minValue, maxValue, circleValues true|false (when max go to min and vice versa)
-    rotaryEncoder.setAcceleration(0); //or set the value - larger number = more accelearation; 0 or 1 means disabled acceleration
-  }
-
-void rotaryChanged()
-  {
-    int rotaryValue = rotaryEncoder.readEncoder();
-    lcd.setCursor(15,1); lcd.print("    ");
-    lcd.setCursor(15,1); lcd.print(rotaryValue);
-  }
-
-void rotaryClicked()
-  {
-    lcd.setCursor(15,1); lcd.print("    ");
-    lcd.setCursor(15,1); lcd.print("C");
-    delay(1000);
-    lcd.setCursor(15,1);lcd.print("    ");
-  }
-
-void loopRotaryEncoder()
-  {
-    if (rotaryEncoder.encoderChanged())
-      {
-        rotaryChanged();
-      }
-    if (rotaryEncoder.isEncoderButtonClicked())
-      {
-        rotaryClicked();
-      }
-  }
 
 // =================================================
 // ========== LCD DISPLAY ==========================
@@ -783,8 +740,6 @@ void displayMainscreenData() // Display the data that changes on main screen
       {
         if (ppmDoseTimerA.isRunning()) lcd.print("A");
         else if (ppmDoseTimerB.isRunning()) lcd.print("B");
-
-
       }
    
     //----Display  Pump status
@@ -832,6 +787,73 @@ void displaySettings()
     lcd.setCursor(5,0); lcd.print("Settings");
   }
 
+// ==================================================
+// ===========  ROTARY ENCODER ======================
+// ==================================================
+AiEsp32RotaryEncoder rotaryEncoder = AiEsp32RotaryEncoder(ROTARY_ENCODER_A_PIN, ROTARY_ENCODER_B_PIN, ROTARY_ENCODER_BUTTON_PIN, -1, ROTARY_ENCODER_STEPS);
+AiEsp32RotaryEncoderNumberSelector numberSelector = AiEsp32RotaryEncoderNumberSelector();
+int current_screen = 0;
+
+void IRAM_ATTR readEncoderISR() {rotaryEncoder.readEncoder_ISR();}
+
+void initilizeRotaryEncoder()
+  {
+    rotaryEncoder.begin();
+    rotaryEncoder.setup(readEncoderISR);
+    rotaryEncoder.setAcceleration(0); //or set the value - larger number = more accelearation; 0 or 1 means disabled acceleration
+  }
+
+void showSelection(int selection)
+  {
+    current_screen = selection;
+    switch (current_screen)
+      {
+        case 0: //Main Screen
+          displayMainscreenstatic();
+          displayMainscreenData();
+        case 1: // Tempurature
+          displayTempurature();
+        case 2: // PH
+          displayPH();
+        case 3: // TDS
+          displayTDS();
+        case 4: // Pump
+          displayPump();
+        case 5: // Settings
+          displaySettings();
+      }
+
+  }
+/*
+void rotaryChanged()
+  {
+    int rotaryValue = rotaryEncoder.readEncoder();
+    lcd.setCursor(15,1); lcd.print("    ");
+    lcd.setCursor(15,1); lcd.print(rotaryValue);
+  }
+*/
+
+void rotaryClicked()
+  {
+    lcd.setCursor(15,1); lcd.print("    ");
+    lcd.setCursor(15,1); lcd.print("C");
+    delay(1000);
+    lcd.setCursor(15,1);lcd.print("    ");
+  }
+
+void rotaryLoop()
+  {
+    rotaryEncoder.setBoundaries(0,  5, true);
+    if (rotaryEncoder.encoderChanged())
+      {
+        int selected_screen = rotaryEncoder.readEncoder();
+        showSelection(selected_screen);
+      }
+    if (rotaryEncoder.isEncoderButtonClicked())
+      {
+        rotaryClicked();
+      }
+  }
 
 // ==================================================
 // ===========  MAIN SETUP ==========================
@@ -844,16 +866,13 @@ void setup(void)
     setupWebServer();
 
     // Check to see if ADS initalized
-    if (!ads.begin()) {
-      Serial.println("Failed to initialize ADS.");
-      while (1);
-  }
-
+    if (!ads.begin()) {Serial.println("Failed to initialize ADS."); while (1);}
+    
     //Initalize RTC
     initalize_rtc();
     setTimeVariables();
 
-// Initilization functions
+    // Initilization functions
     waterTempInitilization();
     dhtIntilization();
     moistureInitilization(); // change to minutes later
@@ -864,8 +883,8 @@ void setup(void)
     initilizeRotaryEncoder();
 
     // Prepare screen
-    displaySplashscreen();
-    displayMainscreenstatic();
+    //displaySplashscreen();
+    //displayMainscreenstatic();
 
     //doseTest(); //used to test ph dosing motors
 
@@ -877,43 +896,35 @@ void setup(void)
 // ====================================================
 void loop(void)
 {
+  setTimeVariables();
+  
   // --- READ SENSORS
   getWaterTemp(); // sets tempC and tempF
   getTDSReading(); // sets tds_value
   getPH();
+  dhtReadings();
+  moistureReading();
+  ppmBlanceCheck();
 
-  // --- HEATER CONTROL
+  // --- CONTROL SYSTEMS
   checkHeater();
-
-  // --- CLOCK
-  setTimeVariables();
+  phBalanceCheck();
 
   // --- PUMP TIMER
   pumpTimer(); // uncomment this to turn on functioning pump timer
+  
+  // --- DISPLAY SCREEN
+  //displayMainscreenData();
+
+  // --- ROTARY ENCODER
+  showSelection(current_screen);
+  rotaryLoop();
+
   if (clear_screen == true) // clear noise from the screen when pump turns on
     {
       displayMainscreenstatic(); 
       clear_screen = false;;
     } 
-
-  // --- DISPLAY SCREEN
-  displayMainscreenData();
-
-  // --- HUMIDITY SENSOR
-  dhtReadings();
-  
-  // - MOISTURE SENSOR
-  moistureReading();
-
-  // --- PH BALANCER
-  phBalanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
-
-  // --- NUTRIENT BALANCER
-  ppmBlanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
-
-  // --- ROTARY ENCODER
-  loopRotaryEncoder();
-
 }
 
 // ----------------- END MAIN LOOP ------------------------
