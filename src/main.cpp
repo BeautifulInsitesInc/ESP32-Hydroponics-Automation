@@ -503,7 +503,7 @@ int ph_dose_pin; //  used to pass motor pin to functions
 millisDelay phDoseTimer; // the dosing amount time
 millisDelay phDoseDelay; // the delay between doses - don't allow another dose before this
 millisDelay phBlinkDelay; // used to blink the indicator if dosing is happening
-bool ph_blink_on = false; // used to for teh blink
+bool ph_blink_on = false; // which cycle of the blink 
 bool ph_is_blinking = false;// make true if Ph dosing indicator should be blinking
 float min_pump_time = .5; // minumim time in minutes the pump needs to have been running before doeses are allowed
 
@@ -513,7 +513,7 @@ void phDosingInitilization()
     pinMode(ph_down_pin, OUTPUT); digitalWrite(ph_down_pin, HIGH);
     phDoseDelay.start((ph_delay_minutes+pump_init_delay)*60*1000); // start ph delay before dosing can start
   }
-// ----- PH DOSING ---------------------------------------
+
 void phDose(int motor_pin) // turns on the approiate ph dosing pump
   {
     digitalWrite(motor_pin, LOW); // turn on dosing pump
@@ -522,7 +522,7 @@ void phDose(int motor_pin) // turns on the approiate ph dosing pump
     ph_dose_pin = motor_pin;
     phDoseDelay.start(ph_delay_minutes * 60 * 1000); // start delay before next dose is allowed
     Serial.print("A ph dose has been started, timer is runnning. Dose pin : "); Serial.println(ph_dose_pin);
-    ph_is_blinking = true;
+    //ph_is_blinking = true;
     pumpOnTimer.restart();
   }
 
@@ -549,7 +549,11 @@ void phBalanceCheck() //this is to be called from pump turning on function
 millisDelay ppmDoseTimerA;
 millisDelay ppmDoseTimerB;
 millisDelay ppmDoseDelay;
+millisDelay ppmBlinkDelay;
 bool next_ppm_dose_b = false;
+bool ppm_is_blinking = false; // if it should be blinking or not
+bool ppm_blink_cycle_on = false; // which cycle of the blink
+
 
 void ppmDosingInitilization()
   {
@@ -565,6 +569,7 @@ void ppmDoseA()
     ppmDoseDelay.start(ppm_delay_minutes * 60 * 1000); // start delay before next dose is allowed
     Serial.println("Nutrient dose A has been started, timer is runnning");
     next_ppm_dose_b = true; // run ppm dose B next
+    ppmBlinkDelay.start(blink_delay*1000);
     pumpOnTimer.restart();
   }
 
@@ -574,6 +579,7 @@ void ppmDoseB()
     ppmDoseTimerB.start(ph_dose_seconds*1000); // start the pump
     ppmDoseDelay.start(ppm_delay_minutes * 60 * 1000); // start delay before next dose is allowed
     Serial.println("Nutrient dose A has been started, timer is runnning");
+    ppmBlinkDelay.start(blink_delay*1000);
     pumpOnTimer.restart();
   }
 void ppmBlanceCheck()
@@ -645,11 +651,12 @@ void displaySplashscreen()// Display the splash screen
     lcd.setCursor(4,2); lcd.print("Feel Good");
     lcd.setCursor(4,3); lcd.print("Look Good");
     delay(1000);
+    lcd.clear();
   }
 
 void displayMainscreenstatic()// Display the parts that don't change
   {
-    lcd.clear();
+    //lcd.clear();
     lcd.setCursor(0,0); lcd.print("PH:");
     lcd.setCursor(0,1); lcd.print("NT:");
     lcd.setCursor(0,2); lcd.print("TP:");
@@ -724,7 +731,7 @@ void displayMainscreenData() // Display the data that changes on main screen
 
     // Display TDS reading
     lcd.setCursor(3,1);
-    if (tds_value > 1000) lcd.print("(err)");
+    if (tds_value == -1) lcd.print("(err)");
     else lcd.print(tds_value); lcd.print("   ");
     lcd.setCursor(11,1); lcd.print("["); // display set ppm level
     if (ppm_set_level < 100 ) lcd.setCursor(14,1);
@@ -738,9 +745,37 @@ void displayMainscreenData() // Display the data that changes on main screen
     lcd.setCursor(18,1);
     if (tds_value < ppm_set_level - ppm_tolerance)
       {
-        if (ppmDoseTimerA.isRunning()) lcd.print("A");
-        else if (ppmDoseTimerB.isRunning()) lcd.print("B");
+        ppm_is_blinking = true;
+        if (ppmDoseTimerA.isRunning()) // check if Dose A is hapening
+          {
+            lcd.print("A");
+          } 
+          else if (ppmDoseTimerB.isRunning()) // if not, check if Dose B is happening
+            {
+              lcd.print("B");
+            }
+            else // else blink the next dose that will be happening
+              {
+                if (ppm_is_blinking)
+                  {
+                    lcd.setCursor(18,1);
+                    if (ppm_blink_cycle_on == false)
+                      {
+                        lcd.print(" ");
+                        ppmBlinkDelay.repeat();
+                        ppm_blink_cycle_on = true;
+                      }
+                    else 
+                      {
+                        if (next_ppm_dose_b == false) lcd.print("A");
+                          else lcd.print("B");
+                        ppm_blink_cycle_on = false;
+                      }
+                  }
+              }
+        
       }
+    else {lcd.setCursor(18,1); lcd.print(" ");}
    
     //----Display  Pump status
     lcd.setCursor(3,3);
@@ -759,32 +794,27 @@ void displayMainscreenData() // Display the data that changes on main screen
 
 void displayTempurature()
   {
-    lcd.clear();
-    lcd.setCursor(5,0); lcd.print("Tempurature");
+    lcd.setCursor(0,0); lcd.print("Tempurature");
   }
 
 void displayPH()
   {
-    lcd.clear();
-    lcd.setCursor(5,0); lcd.print("PH");
+    lcd.setCursor(0,0); lcd.print("PH");
   }
 
 void displayTDS()
   {
-    lcd.clear();
-    lcd.setCursor(5,0); lcd.print("TDS");
+    lcd.setCursor(0,0); lcd.print("TDS");
   }
 
 void displayPump()
   {
-    lcd.clear();
-    lcd.setCursor(5,0); lcd.print("Pump");
+    lcd.setCursor(0,0); lcd.print("Pump");
   }
 
 void displaySettings()
   {
-    lcd.clear();
-    lcd.setCursor(5,0); lcd.print("Settings");
+    lcd.setCursor(0,0); lcd.print("Settings");
   }
 
 // ==================================================
@@ -793,6 +823,7 @@ void displaySettings()
 AiEsp32RotaryEncoder rotaryEncoder = AiEsp32RotaryEncoder(ROTARY_ENCODER_A_PIN, ROTARY_ENCODER_B_PIN, ROTARY_ENCODER_BUTTON_PIN, -1, ROTARY_ENCODER_STEPS);
 AiEsp32RotaryEncoderNumberSelector numberSelector = AiEsp32RotaryEncoderNumberSelector();
 int current_screen = 0;
+bool display_main_screen_static = true;
 
 void IRAM_ATTR readEncoderISR() {rotaryEncoder.readEncoder_ISR();}
 
@@ -806,21 +837,29 @@ void initilizeRotaryEncoder()
 void showSelection(int selection)
   {
     current_screen = selection;
-    switch (current_screen)
+    switch (selection)
       {
         case 0: //Main Screen
+          Serial.print("selection funciton is running");
+          if (display_main_screen_static) {displayMainscreenstatic(); display_main_screen_static = false;}
           displayMainscreenstatic();
           displayMainscreenData();
+          break;
         case 1: // Tempurature
           displayTempurature();
+          break;
         case 2: // PH
           displayPH();
+          break;
         case 3: // TDS
           displayTDS();
+          break;
         case 4: // Pump
           displayPump();
+          break;
         case 5: // Settings
           displaySettings();
+          break;
       }
 
   }
@@ -843,10 +882,11 @@ void rotaryClicked()
 
 void rotaryLoop()
   {
-    rotaryEncoder.setBoundaries(0,  5, true);
+    rotaryEncoder.setBoundaries(0,  6, true);
     if (rotaryEncoder.encoderChanged())
       {
         int selected_screen = rotaryEncoder.readEncoder();
+        lcd.clear();
         showSelection(selected_screen);
       }
     if (rotaryEncoder.isEncoderButtonClicked())
@@ -883,8 +923,8 @@ void setup(void)
     initilizeRotaryEncoder();
 
     // Prepare screen
-    //displaySplashscreen();
-    //displayMainscreenstatic();
+    displaySplashscreen();
+    displayMainscreenstatic();
 
     //doseTest(); //used to test ph dosing motors
 
@@ -914,6 +954,7 @@ void loop(void)
   pumpTimer(); // uncomment this to turn on functioning pump timer
   
   // --- DISPLAY SCREEN
+  //displayMainscreenstatic();
   //displayMainscreenData();
 
   // --- ROTARY ENCODER
