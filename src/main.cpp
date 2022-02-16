@@ -33,7 +33,7 @@ AsyncWebServer server(80);
 bool temp_in_c = true; // Tempurature defaults to C
 float heater = 25; // Tempurature that shuts off the heater
 float heater_delay = .5; // Delay heater power on initiation in minutes
-float moisture_delay = 2; // Delay between moisture sensing
+float moisture_delay = 2; // Delay between moisture sensing in minutes
 
 bool twelve_hour_clock = true; // Clock format
 
@@ -41,14 +41,15 @@ float pump_init_delay = .5; // Minutes - Initial time before starting the pump o
 float pump_on_time = 1; // Minutes - how long the pump stays on for
 float pump_off_time = 2; // Minutes -  how long the pump stays off for
 
-float ph_set_level = 6.2; // Desired pH level
-float ph_delay_minutes = 0.5;// miniumum period allowed between doses in minutes
+float ph_set_level = 6.9; // Desired pH level
+float ph_delay_minutes = 0.25;// miniumum period allowed between doses in minutes
 float ph_dose_seconds = 1; // Time Dosing pump runs per dose in seconds;
-float ph_tolerance = 0.5; // how much can ph go from target before adjusting
+float ph_tolerance = 0.2; // how much can ph go from target before adjusting
 
-float ppm_set_level = 400; // Desired nutrient level
-float ppm_delay_minutes = .5; //period btween readings/doses in minutes
+int ppm_set_level = 400; // Desired nutrient level
+float ppm_delay_minutes = .25; //period btween readings/doses in minutes
 float ppm_dose_seconds = 1; // Time Dosing pump runs per dose
+int ppm_tolerance = 100; // nutrient level tolarance in ppm
 
 float blink_delay = 1; // blinking indicator blink speed in seconds
 
@@ -145,6 +146,11 @@ float convertCtoF(float c)
 int moisture_value;
 millisDelay moistureDelay;
 
+void moistureInitilization()
+  { 
+    moistureDelay.start(moisture_delay*1000);
+  }
+
 void moistureReading()
   {
     if (moistureDelay.justFinished())
@@ -154,7 +160,6 @@ void moistureReading()
       moistureDelay.repeat();
       //Serial.print("reading : "); Serial.print(reading);
       //Serial.print("     moisture_value = "); Serial.print(moisture_value); Serial.println("%");
-
     }
     
   }
@@ -187,12 +192,12 @@ void dhtReadings()
         dht_tempF = dht.readTemperature(true);
         dht_humidity = dht.readHumidity();
         dhtDelay.repeat();
-        
+        /*
         Serial.print("reading from pin 34 :"); Serial.print(digitalRead(34));
         Serial.print("   reading from pin 35 :"); Serial.print(digitalRead(35));
         Serial.print("   Temperature = "); Serial.print(dht_tempC); Serial.print("       F: ");Serial.print(dht_tempF);
         Serial.print("       Humidity = "); Serial.println(dht_humidity);
-        
+        */
       }
   }
 void displayDHTmain()
@@ -266,6 +271,11 @@ millisDelay heaterTimer;
 #define TEMPERATURE_PRECISION 10
 DallasTemperature waterTempSensor(&oneWire); // Pass our oneWire reference to Dallas Temperature.
 
+void waterTempInitilization()
+  {
+    waterTempSensor.begin(); // initalize water temp sensor
+  }
+
 void getWaterTemp()
   {
     waterTempSensor.requestTemperatures();    // send the command to get temperatures
@@ -277,6 +287,15 @@ void getWaterTemp()
         tempC = -1; 
         tempF = tempC;
       }
+  }
+
+// =======================================================
+// ======= HEATER CONTROL ================================
+// =======================================================
+void heaterIntitilization()
+  {
+    pinMode(heater_pin, OUTPUT); digitalWrite(heater_pin, HIGH);
+    heaterTimer.start(heater_delay *60 * 1000); // start heater initilization delay
   }
 
 void checkHeater()
@@ -422,19 +441,80 @@ void getTDSReading()
       }
   }
 
+
+// ==================================================
+// ===========  PUMP CONTROL ========================
+// ==================================================
+int pump_seconds; // current seconds left
+int pump_minutes;
+millisDelay pumpOnTimer;
+millisDelay pumpOffTimer;
+bool clear_screen = false;
+
+void pumpInitilization()
+  {
+    pinMode(pump_pin, OUTPUT); digitalWrite(pump_pin,HIGH);
+    pumpOffTimer.start(pump_init_delay*60*1000); // start initilization period
+    pump_seconds = pumpOffTimer.remaining() /1000;
+  }
+
+void setPumpSeconds() // Change seconds into minutes and seconds
+  { 
+    pump_minutes = pump_seconds / 60;
+    if (pump_seconds < 60) pump_minutes = 0;
+    else pump_seconds = pump_seconds - (pump_minutes * 60);
+  }
+
+void pumpTimer()
+  {
+    if (digitalRead(pump_pin) == 1 ) // pump is off, check timer
+      {
+        pump_seconds = pumpOffTimer.remaining() / 1000;
+        if (pumpOffTimer.justFinished()) // off delay is done, start pump
+          {
+            digitalWrite(pump_pin, LOW); // turn on pump
+            Serial.print("pump_on_time : ");
+            Serial.print(pump_on_time);
+            pumpOnTimer.start(pump_on_time * 60 * 1000);
+            pump_seconds = pumpOnTimer.remaining() / 1000;
+            clear_screen = true;
+            //phDoseDelay.restart(); // restart the dose delays to allow pump to run
+            //ppmDoseDelay.restart();
+            //phBalanceCheck(); // check to see if ph dose is needed
+            
+          }
+      }
+    else // pump is on, check timing
+      {
+        pump_seconds = pumpOnTimer.remaining() /1000;
+        if (pumpOnTimer.justFinished()) // on time is done turn off
+          {
+            digitalWrite(pump_pin, HIGH); // turn off pump
+            pumpOffTimer.start(pump_off_time * 60 * 1000);
+            pump_seconds = pumpOffTimer.remaining() /1000;
+          }
+      }
+    setPumpSeconds();
+  }
+
 // =================================================
-// ========== DOSING PUMPS =========================
+// ========== PH DOSING PUMPS =========================
 // =================================================
 int ph_dose_pin; //  used to pass motor pin to functions
 millisDelay phDoseTimer; // the dosing amount time
 millisDelay phDoseDelay; // the delay between doses - don't allow another dose before this
 millisDelay phBlinkDelay; // used to blink the indicator if dosing is happening
+bool ph_blink_on = false; // used to for teh blink
+bool ph_is_blinking = false;// make true if Ph dosing indicator should be blinking
+float min_pump_time = .5; // minumim time in minutes the pump needs to have been running before doeses are allowed
 
-millisDelay ppmDoseTimerA;
-millisDelay ppmDoseTimerB;
-millisDelay ppmDoseDelay;
-bool next_ppm_dose_b = false;
-
+void phDosingInitilization()
+  {
+    pinMode(ph_up_pin, OUTPUT); digitalWrite(ph_up_pin, HIGH);
+    pinMode(ph_down_pin, OUTPUT); digitalWrite(ph_down_pin, HIGH);
+    phDoseDelay.start((ph_delay_minutes+pump_init_delay)*60*1000); // start ph delay before dosing can start
+  }
+// ----- PH DOSING ---------------------------------------
 void phDose(int motor_pin) // turns on the approiate ph dosing pump
   {
     digitalWrite(motor_pin, LOW); // turn on dosing pump
@@ -443,14 +523,18 @@ void phDose(int motor_pin) // turns on the approiate ph dosing pump
     ph_dose_pin = motor_pin;
     phDoseDelay.start(ph_delay_minutes * 60 * 1000); // start delay before next dose is allowed
     Serial.print("A ph dose has been started, timer is runnning. Dose pin : "); Serial.println(ph_dose_pin);
+    ph_is_blinking = true;
+    pumpOnTimer.restart();
   }
 
 void phBalanceCheck() //this is to be called from pump turning on function
   {
     if (phDoseTimer.justFinished()) digitalWrite(ph_dose_pin, HIGH);// dosing is done, turn off, and start delay before next dose is allowed
-    if (phDoseDelay.remaining()<=0)  
+    
+    if (phDoseDelay.remaining()<=0 && digitalRead(pump_pin) == 0 )  // Make sure pump is on, and has run the miniumum time.
       {
-        //Serial.println("PH Dose timer is not running checking if adjustment is needed");
+        //Serial.print("PH Dose - pump is running for long enough testing for dose : Startime of pump timer : ");
+        //Serial.println(pumpOnTimer.getStartTime());
         if (ph_value < ph_set_level - ph_tolerance)
           {
             phDose(ph_up_pin);
@@ -460,6 +544,21 @@ void phBalanceCheck() //this is to be called from pump turning on function
     //else Serial.println("Dose pause timer is runnning - not allowing another dose");
   }
 
+// =================================================
+// ========== PPM DOSING PUMPS =========================
+// =================================================
+millisDelay ppmDoseTimerA;
+millisDelay ppmDoseTimerB;
+millisDelay ppmDoseDelay;
+bool next_ppm_dose_b = false;
+
+void ppmDosingInitilization()
+  {
+    pinMode(ppm_a_pin, OUTPUT); digitalWrite(ppm_a_pin, HIGH);
+    pinMode(ppm_b_pin, OUTPUT); digitalWrite(ppm_b_pin, HIGH);
+    ppmDoseDelay.start((ppm_delay_minutes+pump_init_delay)*60*1000); // start delay before ppm dosing can start
+  }
+
 void ppmDoseA()
   {
     digitalWrite(ppm_a_pin, LOW); // turn on ppm dosing pump
@@ -467,6 +566,7 @@ void ppmDoseA()
     ppmDoseDelay.start(ppm_delay_minutes * 60 * 1000); // start delay before next dose is allowed
     Serial.println("Nutrient dose A has been started, timer is runnning");
     next_ppm_dose_b = true; // run ppm dose B next
+    pumpOnTimer.restart();
   }
 
 void ppmDoseB()
@@ -475,6 +575,7 @@ void ppmDoseB()
     ppmDoseTimerB.start(ph_dose_seconds*1000); // start the pump
     ppmDoseDelay.start(ppm_delay_minutes * 60 * 1000); // start delay before next dose is allowed
     Serial.println("Nutrient dose A has been started, timer is runnning");
+    pumpOnTimer.restart();
   }
 void ppmBlanceCheck()
   {
@@ -483,13 +584,9 @@ void ppmBlanceCheck()
     if (ppmDoseTimerB.justFinished()) digitalWrite(ppm_b_pin, HIGH);// dosing is done, turn off, and start delay before next dose is allowed
 
     // check if ppm dosing is required
-    if (ppmDoseDelay.isRunning()) //check if ppm dose delay is running
+    if (ppmDoseDelay.remaining()<=0 && digitalRead(pump_pin) == 0) //check if ppm dose delay is running
       {
-        //Serial.print("PPM Dose delay timer is running, not alloweed to dose yet");
-      }
-    else
-      {
-        Serial.print("PPM dose delay timer is not running, dosing can happen");
+        //Serial.println("PPM Dose delay timer at zero, and the pump is running its ok to check");
         if (next_ppm_dose_b == true) 
           {
             ppmDoseB();
@@ -499,9 +596,13 @@ void ppmBlanceCheck()
         
         else 
           {
-            if (tds_value < ppm_set_level) ppmDoseA();
-            next_ppm_dose_b = true;
-            Serial.println("Sending Dose A");
+            Serial.print("TDS vlaue : "); Serial.print(tds_value); Serial.print(" ppmsetlevel "); Serial.println(ppm_set_level);
+            if (tds_value + ppm_tolerance < ppm_set_level) 
+              {
+                ppmDoseA();
+                next_ppm_dose_b = true;
+                Serial.println("Sending Dose A");
+              }
           }
       }
   }
@@ -529,52 +630,6 @@ void doseTest()
     delay(500);
     digitalWrite(ppm_b_pin, HIGH); Serial.println("Nutrient B is HIGH");
     delay(1000);
-  }
-
-// ==================================================
-// ===========  PUMP CONTROL ========================
-// ==================================================
-int pump_seconds; // current seconds left
-int pump_minutes;
-millisDelay pumpOnTimer;
-millisDelay pumpOffTimer;
-bool clear_screen = false;
-
-void setPumpSeconds() // Change seconds into minutes and seconds
-  { 
-    pump_minutes = pump_seconds / 60;
-    if (pump_seconds < 60) pump_minutes = 0;
-    else pump_seconds = pump_seconds - (pump_minutes * 60);
-  }
-
-void pumpTimer()
-  {
-    if (digitalRead(pump_pin) == 1 ) // pump is off, check timer
-      {
-        pump_seconds = pumpOffTimer.remaining() / 1000;
-        if (pumpOffTimer.justFinished()) // off delay is done, start pump
-          {
-            digitalWrite(pump_pin, LOW); // turn on pump
-            Serial.print("pump_on_time : ");
-            Serial.print(pump_on_time);
-            pumpOnTimer.start(pump_on_time * 60 * 1000);
-            pump_seconds = pumpOnTimer.remaining() / 1000;
-            clear_screen = true;
-            //phBalanceCheck(); // check to see if ph dose is needed
-            
-          }
-      }
-    else // pump is on, check timing
-      {
-        pump_seconds = pumpOnTimer.remaining() /1000;
-        if (pumpOnTimer.justFinished()) // on time is done turn off
-          {
-            digitalWrite(pump_pin, HIGH); // turn off pump
-            pumpOffTimer.start(pump_off_time * 60 * 1000);
-            pump_seconds = pumpOffTimer.remaining() /1000;
-          }
-      }
-    setPumpSeconds();
   }
 
 // ==================================================
@@ -624,8 +679,6 @@ void loopRotaryEncoder()
 // =================================================
 // ========== LCD DISPLAY ==========================
 // =================================================
-bool ph_blink_on = false;
-
 void displaySplashscreen()// Display the splash screen
   {
     lcd.init(); // Initialize LCD
@@ -640,10 +693,10 @@ void displaySplashscreen()// Display the splash screen
 void displayMainscreenstatic()// Display the parts that don't change
   {
     lcd.clear();
-    lcd.setCursor(1,0); lcd.print("PH:");
-    lcd.setCursor(0,1); lcd.print("TDS:");
-    lcd.setCursor(0,2); lcd.print("TMP:");
-    lcd.setCursor(0,3); lcd.print("PMP:");
+    lcd.setCursor(0,0); lcd.print("PH:");
+    lcd.setCursor(0,1); lcd.print("NT:");
+    lcd.setCursor(0,2); lcd.print("TP:");
+    lcd.setCursor(0,3); lcd.print("PP:");
   }
 
 // --- Functions for main screen 
@@ -656,18 +709,19 @@ void displayPhUorD() // used for flashing or displaying U or D
 void displayMainscreenData() // Display the data that changes on main screen
   {
     // ---- PH READING
-    lcd.setCursor(4,0); lcd.print(ph_value); 
+    lcd.setCursor(3,0); lcd.print(ph_value); 
     lcd.setCursor(12,0); lcd.print("["); lcd.print(ph_set_level,1); lcd.print("]");
     // Display brackets if blancing is happening
     lcd.setCursor(17,0); lcd.print("["); 
     lcd.setCursor(19,0); lcd.print("]");
     if (ph_value < ph_set_level - ph_tolerance || ph_value > ph_set_level + ph_tolerance)
       {
-        
+        ph_is_blinking = true;
         if (phDoseTimer.isRunning()) displayPhUorD();
         else // ph is in waiting period flash indicator
           {
-            if (phBlinkDelay.justFinished())
+            //if (phBlinkDelay.justFinished())
+            if (ph_is_blinking) // indicator shoudl be belinking
             {if (ph_blink_on == false) 
               {
                 lcd.setCursor(18,0); lcd.print(" ");
@@ -682,14 +736,19 @@ void displayMainscreenData() // Display the data that changes on main screen
             }
           }
       }
-    else {lcd.setCursor(17,0); lcd.print("   ");}
+    else {
+      lcd.setCursor(18,0); lcd.print(" "); 
+      ph_is_blinking = false;
+      }
     
+    // --- PPM READING
+
     // --- TEMPURATURE
-    lcd.setCursor(4,2);
+    lcd.setCursor(3,2);
     if (tempC == -10) {lcd.print("(err)  ");}// -1 is an error
     else 
       {
-        lcd.setCursor(4,2);
+        lcd.setCursor(3,2);
         if (temp_in_c == true) {
           lcd.print(tempC,1); lcd.print((char)223); lcd.print("C");
           lcd.setCursor(14,2); lcd.print(heater,0);
@@ -707,15 +766,37 @@ void displayMainscreenData() // Display the data that changes on main screen
     else {lcd.setCursor(18,2); lcd.print(" ");}
 
     // Display TDS reading
-    lcd.setCursor(4,1);
-    if (tds_value > 1000) lcd.print("(error)    ");
-    else {lcd.print(tds_value); lcd.print(" PPM    ");}
+    lcd.setCursor(3,1);
+    if (tds_value > 1000) lcd.print("(err)");
+    else lcd.print(tds_value); lcd.print("   ");
+    lcd.setCursor(11,1); lcd.print("["); // display set ppm level
+    if (ppm_set_level < 100 ) lcd.setCursor(14,1);
+    else if (ppm_set_level < 1000) lcd.setCursor(13,1);
+          else lcd.setCursor(12,1);
+    lcd.print(ppm_set_level); lcd.print("]");
+
+    lcd.setCursor(17,1); lcd.print("["); 
+    lcd.setCursor(19,1); lcd.print("]");
+
+    lcd.setCursor(18,1);
+    if (tds_value < ppm_set_level - ppm_tolerance)
+      {
+        if (ppmDoseTimerA.isRunning()) lcd.print("A");
+        else if (ppmDoseTimerB.isRunning()) lcd.print("B");
+
+
+      }
    
     //----Display  Pump status
-    lcd.setCursor(4,3);
+    lcd.setCursor(3,3);
     if (digitalRead(pump_pin) == 0) lcd.print("ON ");
     else lcd.print("OFF");
-    lcd.setCursor(16,3); lcd.print(pump_minutes); printDigits(pump_seconds); // use time fuction to print 2 digit seconds
+    lcd.setCursor(7,3); lcd.print("H:"); lcd.print(moisture_value,0); lcd.print("% ");
+    lcd.setCursor(13,3); lcd.print("["); 
+    if (pump_minutes == 0) lcd.print(" 0");
+    else if (pump_minutes<10) {lcd.print("0"); lcd.print(pump_minutes);}
+          else lcd.print(pump_minutes); 
+    printDigits(pump_seconds); lcd.print("]"); // use time fuction to print 2 digit seconds
 
     // ---- Display time
     //lcd.setCursor(14,0); displayTime();
@@ -768,37 +849,18 @@ void setup(void)
       while (1);
   }
 
-    // Initialize Sensors
-    waterTempSensor.begin(); // initalize water temp sensor
-    dhtIntilization();
-
-    // MOISTURE SENSOR
-    moistureDelay.start(moisture_delay*1000); // change to minutes later
-  
     //Initalize RTC
     initalize_rtc();
     setTimeVariables();
 
-    //Initalize Pump
-    pinMode(pump_pin, OUTPUT); digitalWrite(pump_pin,HIGH);
-    pumpOffTimer.start(pump_init_delay*60*1000); // start initilization period
-    pump_seconds = pumpOffTimer.remaining() /1000;
-       
-    Serial.print("pump start timer : "); Serial.println(pump_seconds);
-
-    //Initalize Heater
-    pinMode(heater_pin, OUTPUT); digitalWrite(heater_pin, HIGH);
-    heaterTimer.start(heater_delay *60 * 1000); // start heater initilization delay
-    
-    // Initalize dosing pumps
-    pinMode(ph_up_pin, OUTPUT); digitalWrite(ph_up_pin, HIGH);
-    pinMode(ph_down_pin, OUTPUT); digitalWrite(ph_down_pin, HIGH);
-    pinMode(ppm_a_pin, OUTPUT); digitalWrite(ppm_a_pin, HIGH);
-    pinMode(ppm_b_pin, OUTPUT); digitalWrite(ppm_b_pin, HIGH);
-    ppmDoseDelay.start(ppm_delay_minutes*60*100); // start delay before ppm dosing can start
-    phDoseDelay.start(ph_delay_minutes*60*10); // start ph delay before dosing can start
-
-    // Initilize Rotary Encoder
+// Initilization functions
+    waterTempInitilization();
+    dhtIntilization();
+    moistureInitilization(); // change to minutes later
+    pumpInitilization();
+    heaterIntitilization();
+    phDosingInitilization();
+    ppmDosingInitilization();
     initilizeRotaryEncoder();
 
     // Prepare screen
@@ -807,7 +869,7 @@ void setup(void)
 
     //doseTest(); //used to test ph dosing motors
 
-    testFileUpload();
+    //testFileUpload();
   }
 
 // ====================================================
@@ -844,7 +906,7 @@ void loop(void)
   moistureReading();
 
   // --- PH BALANCER
-  //phBalanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
+  phBalanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
 
   // --- NUTRIENT BALANCER
   ppmBlanceCheck(); // move this to pump on function once testing is complete so it only runs when pump is on
