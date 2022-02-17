@@ -17,10 +17,12 @@
 //#include <Arduino_JSON.h> // to make handling json files easier
 #include <Adafruit_ADS1X15.h> // For Adafruit 4 channel ADC Breakout board SFD1015
 #include <DHT.h> // Humidity and tempurature sensor
+#include <EEPROM.h> // to access flash memory
 
 LiquidCrystal_I2C lcd(0x27, 20, 4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 SimpleTimer timer;
 Adafruit_ADS1115 ads; // Use this for the 16-bit version ADC
+
 
 const char* ssid = "Office 2.4";
 //const char* ssid = "Free Viruses";
@@ -30,7 +32,7 @@ const char* password = "cracker70";
 AsyncWebServer server(80);
 
 // ----- DEFAULT SETTINGS ------
-bool temp_in_c = true; // Tempurature defaults to C
+int temp_in_c = 1; // Tempurature defaults to C 0 = farenheight
 float heater = 25; // Tempurature that shuts off the heater
 float heater_delay = .5; // Delay heater power on initiation in minutes
 float moisture_delay = 2; // Delay between moisture sensing in minutes
@@ -41,7 +43,7 @@ float pump_init_delay = .5; // Minutes - Initial time before starting the pump o
 float pump_on_time = 1; // Minutes - how long the pump stays on for
 float pump_off_time = 2; // Minutes -  how long the pump stays off for
 
-float ph_set_level = 7.2; // Desired pH level
+float ph_set_level = 6.9; // Desired pH level
 float ph_delay_minutes = 0.25;// miniumum period allowed between doses in minutes
 float ph_dose_seconds = 1; // Time Dosing pump runs per dose in seconds;
 float ph_tolerance = 0.2; // how much can ph go from target before adjusting
@@ -58,6 +60,7 @@ millisDelay blinkDelay;
 int select_screen = 0;// to selet which main screen to display
 int select_screen_option_number = 0; // 0 = nothing selected so rotate screens. 1 = first option on screen, 2 = 2nd option etc
 int select_option = 0; 
+
 
 
 
@@ -81,8 +84,8 @@ const int ph_down_pin = 26; // pH down dosing pump
 const int ppm_a_pin = 19; // nutrient part A dosing pump
 const int ppm_b_pin = 18; // nutrient part B dosing pump
 
-#define ROTARY_ENCODER_A_PIN 36 // CLK pin
-#define ROTARY_ENCODER_B_PIN 39  // DT pin
+#define ROTARY_ENCODER_A_PIN 39 // CLK pin
+#define ROTARY_ENCODER_B_PIN 36  // DT pin
 #define ROTARY_ENCODER_BUTTON_PIN 27 // SW (Button pin)
 #define ROTARY_ENCODER_VCC_PIN -1  // Set to -1 if connecting to VCC (otherwise any output in)
 #define ROTARY_ENCODER_STEPS 4
@@ -210,7 +213,7 @@ void dhtReadings()
   }
 void displayDHTmain()
   {
-    if (temp_in_c == true) {lcd.print(" "); lcd.print(dht_tempC,0); lcd.print(" "); lcd.print(dht_humidity,0); lcd.print("%");}
+    if (temp_in_c == 1) {lcd.print(" "); lcd.print(dht_tempC,0); lcd.print(" "); lcd.print(dht_humidity,0); lcd.print("%");}
     else {lcd.print(" "); lcd.print(dht_tempF,0); lcd.print(" "); lcd.print(dht_humidity,0); lcd.print("%");}
   }
 // =======================================================
@@ -719,7 +722,7 @@ void displayMainscreenData() // Display the data that changes on main screen
     else 
       {
         lcd.setCursor(3,2);
-        if (temp_in_c == true) {
+        if (temp_in_c == 1) {
           lcd.print(tempC,1); lcd.print((char)223); lcd.print("C");
           lcd.setCursor(14,2); lcd.print(heater,0);
         }
@@ -799,23 +802,27 @@ void displayMainscreenData() // Display the data that changes on main screen
 
 void displayTempUnits()
   {
-    if (temp_in_c) lcd.print("Celsius   ");
+    if (temp_in_c == 1) lcd.print("Celsius   ");
     else lcd.print("Fahrenheit");
+  }
+
+void displayTempSet()
+  {
+    if(temp_in_c == 1) lcd.print(heater);
+    else lcd.print(convertCtoF(heater),0);
   }
 void displayTempurature()
   {
-    lcd.setCursor(7,0); lcd.print("TEMP");
+    lcd.setCursor(0,0); lcd.print("WATER:"); 
+    if (temp_in_c == 1){lcd.print(tempC,1); lcd.print((char)223); lcd.print("C");}
+    else {lcd.print(tempF,1); lcd.print((char)223); lcd.print("F");}
 
-    lcd.setCursor(0,1); lcd.print("Water:"); 
-    if (temp_in_c){lcd.print(tempC); lcd.print((char)223); lcd.print("C");}
-    else {lcd.print(tempF); lcd.print((char)223); lcd.print("F");}
-    
-    lcd.setCursor(0,2); lcd.print(" Room:"); 
-    if (temp_in_c){lcd.print(dht_tempC,1); lcd.print((char)223); lcd.print("C ");}
+    lcd.setCursor(0,1); lcd.print(" ROOM:"); 
+    if (temp_in_c == 1){lcd.print(dht_tempC,1); lcd.print((char)223); lcd.print("C ");}
     else {lcd.print(dht_tempF,1); lcd.print((char)223); lcd.print("F ");}
-    lcd.print("H:"); lcd.print(dht_humidity,0); lcd.print("%");
+    lcd.print("  H:"); lcd.print(dht_humidity,0); lcd.print("%");
 
-    lcd.setCursor(0,3); lcd.print("Units: ");
+    lcd.setCursor(0,3); lcd.print("UNITS: ");
     lcd.setCursor(7,3);
     if (select_screen_option_number == 1) // edit mode blink selections
       {
@@ -829,12 +836,42 @@ void displayTempurature()
       }
     else displayTempUnits();
 
+    lcd.setCursor(13,0); lcd.print("SET:");
+    lcd.setCursor(17,0);
+    if (select_screen_option_number == 2) // edit mode blink selections
+      {
+        if (blinkDelay.justFinished()) 
+          {
+            if(blink_status_on == false) {lcd.print("   ");blink_status_on = true;}
+            else {displayTempSet(); blink_status_on = false;}
+            blinkDelay.repeat();
+          }
+          
+      }
+    else displayTempSet();
+
       
   }
 
 void displayPH()
   {
-    lcd.setCursor(0,0); lcd.print("PH");
+    lcd.setCursor(0,0); lcd.print(" PH: ");lcd.print(ph_value);
+    lcd.setCursor(0,1); lcd.print("SET: ");
+    //lcd.setCursor(5,1); lcd.print(ph_set_level);
+
+    lcd.setCursor(5,1);
+    if (select_screen_option_number == 1) // edit set level
+      {
+        if (blinkDelay.justFinished())
+          {
+            if (blink_status_on == false) {lcd.print("     "); blink_status_on = true;}
+            else {lcd.print(ph_set_level); blink_status_on = false;}
+            blinkDelay.repeat();
+          }
+        
+      }
+    else lcd.print(ph_set_level);
+
   }
 
 void displayTDS()
@@ -860,6 +897,7 @@ AiEsp32RotaryEncoderNumberSelector numberSelector = AiEsp32RotaryEncoderNumberSe
 //bool edit_mode = false;
 //bool display_main_screen_static = true;
 
+
 void IRAM_ATTR readEncoderISR() {rotaryEncoder.readEncoder_ISR();}
 
 void initilizeRotaryEncoder()
@@ -880,89 +918,111 @@ void selectScreen()
           displayMainscreenstatic();
           displayMainscreenData();
           break;
-        case 5: // Tempurature
+        case 1: // Tempurature
           displayTempurature();
           break;
-        case 4: // PH
+        case 2: // PH
           displayPH();
           break;
         case 3: // TDS
           displayTDS();
           break;
-        case 2: // Pump
+        case 4: // Pump
           displayPump();
           break;
-        case 1: // Settings
+        case 5: // Settings
           displaySettings();
           break;
-      }
-  }
-
-void rotaryClicked()
-  {
-    static unsigned long lastTimePressed = 0;
-    //ignore multiple press in that time milliseconds
-    if (millis() - lastTimePressed < 500) return;
-    lastTimePressed = millis();
-    
-    int selected_value = rotaryEncoder.readEncoder();
-    Serial.print("Click! selected value: "); Serial.println(selected_value);
-    switch(select_screen)
-      {
-        case 0: // main screen do nothing
-          Serial.println("selected main screen");
-          break;
-        case 5: // tempurature - enter set unites mode
-            Serial.println("Case 5 selected");
-            switch(select_screen_option_number)
-              {
-                case 0: // first click set it to 2
-                    Serial.println("Sected screen option number is 0");
-                    select_screen_option_number = 1;
-                    rotaryEncoder.setBoundaries(0, 1, true); // 2 options
-                    blinkDelay.repeat();
-                    break;
-                case 1: // select the tempurature unit
-                    Serial.println("Sected screen option number is 1");
-                    select_screen_option_number = 0;
-                    if (select_option == 0) temp_in_c = true;
-                    else temp_in_c = false;
-                    break;
-              }
-            break;
       }
   }
 
 void rotaryLoop()
   {
     Serial.print("   select screen : "); Serial.print(select_screen);Serial.print("   select_screen_option_number "); Serial.print(select_screen_option_number);Serial.print(" select Option: "); Serial.println(select_option);
+    // ==================== ROTARY CHANGED =============================
     if (rotaryEncoder.encoderChanged())
       {
-        if(select_screen_option_number == 0) // top level so change screens
+        if (select_screen_option_number == 0) // just change screens
           {
-            rotaryEncoder.setBoundaries(0, 6, true);
             select_screen = rotaryEncoder.readEncoder();
             lcd.clear();
             selectScreen();
           }
-        else 
+        else
           {
-            switch(select_screen)
-              {
-                case 5: //the screen is tempurature
-                    select_option = rotaryEncoder.readEncoder();
-                    if (select_option == 0) temp_in_c = true;
-                    else temp_in_c = false;
-                    break;
-              }
-          }
+            select_option = rotaryEncoder.readEncoder();
+          }           
+      } 
+    else // if encoder has not changed refresh data
+      {
+        selectScreen();
       }
-    else selectScreen();
+    // =============== ROTARY CLICKED ====================================
     if (rotaryEncoder.isEncoderButtonClicked())
       {
-        rotaryClicked();
-      }
-  }
+        Serial.print("Click!  "); Serial.println(rotaryEncoder.readEncoder());
+        switch(select_screen)
+          {
+            case 0: // main screen do nothing
+              Serial.println("selected main screen");
+              break;
+            // TEMURATURE SCREEN  
+            case 1: // tempurature - enter set unites mode
+              switch(select_screen_option_number)
+                {
+                  case 0: // first click edit the fist tiem
+                    // 2 options
+                    rotaryEncoder.setBoundaries(0, 1, true);
+                    blinkDelay.restart();
+                    if(temp_in_c == 1) rotaryEncoder.setEncoderValue(1); // set encoder to current value
+                    else rotaryEncoder.setEncoderValue(0);
+                    select_screen_option_number = 1;
+                  break;
+                  case 1: // save the unit and select heat setting next
+                    // save previous settings
+                    select_option = rotaryEncoder.readEncoder();
+                    temp_in_c = select_option;
+                    if (EEPROM.read(0) != select_option)
+                      {
+                        EEPROM.write(0, select_option);
+                        EEPROM.commit();
+                      }
+                    // set rotary encoder to change temp set level
+                    rotaryEncoder.setBoundaries(15, 30, false);
+                    rotaryEncoder.setEncoderValue(heater); // set encoder to current temp setting
+                    select_screen_option_number = 2;
+                  break;
+                  case 2: 
+                    // save the temp set level and exit
+                    select_option = rotaryEncoder.readEncoder();
+                    heater = select_option;
+                    if (EEPROM.read(1) != heater) 
+                      {
+                        EEPROM.write(1, heater);
+                        EEPROM.commit();
+                      }
+                    select_screen_option_number = 0;
+                    rotaryEncoder.setBoundaries(0, 5, true); // retrun to flipping screens
+                  break;
+                }
+              break;
+            // PH SCREEN
+            case 2: // PH - enter set ph level
+              Serial.println("Case 4 Selected - Set PH");
+              switch(select_screen_option_number)
+                {
+                  case 0: // fist click - edit ph set level
+                    select_screen_option_number = 1;
+                    rotaryEncoder.setBoundaries(4 *10, 9 *10, false);
+                    rotaryEncoder.setEncoderValue(6.2 *10);
+                    break;
+                  case 1: // set the value
+                    select_screen_option_number = 0;
+                    ph_set_level = rotaryEncoder.readEncoder() / 10.0;
+                }
+          }
+      } // main if
+  } // function if
 
 // ==================================================
 // ===========  MAIN SETUP ==========================
@@ -973,7 +1033,23 @@ void setup(void)
     Serial.println("Starting Hydroponics Automation Controler");
     timer.run(); // Initiates SimpleTimer
     setupWebServer();
-                                                                                                                                                                                                                                                                                                                                                                                        blinkDelay.start(blink_delay*1000);
+
+    // Stored Defaults
+    #define EEPROM_SIZE 11
+    EEPROM.begin(EEPROM_SIZE);
+    if (EEPROM.read(0) != 255) temp_in_c = EEPROM.read(0); // temp units
+    if (EEPROM.read(1) != 255) heater = EEPROM.read(1); // temp set
+    if (EEPROM.read(2) != 255) ph_set_level = EEPROM.read(2); // ph set level
+
+    Serial.print("EEPROM 0 : "); Serial.println(EEPROM.read(0));
+    Serial.print("EEPROM(1)  "  ); Serial.println(EEPROM.read(1));
+   Serial.print("EEPROM(2)  "  ); Serial.println(EEPROM.read(2));
+   Serial.print("EEPROM(3)  "  ); Serial.println(EEPROM.read(3));
+
+  
+
+
+
 
     // Check to see if ADS initalized
     if (!ads.begin()) {Serial.println("Failed to initialize ADS."); while (1);}
@@ -995,6 +1071,7 @@ void setup(void)
     // Prepare screen
     displaySplashscreen();
     displayMainscreenstatic();
+    select_screen_option_number = 0;
 
     //doseTest(); //used to test ph dosing motors
 
