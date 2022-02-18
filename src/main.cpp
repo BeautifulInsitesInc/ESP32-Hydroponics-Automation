@@ -23,17 +23,19 @@ LiquidCrystal_I2C lcd(0x27, 20, 4);  // set the LCD address to 0x27 for a 16 cha
 SimpleTimer timer;
 Adafruit_ADS1115 ads; // Use this for the 16-bit version ADC
 
-
-const char* ssid = "Office 2.4";
+const char* ssid = "A Cat May Puree Randomly";
+const char* password = "Success2021";
+//const char* ssid = "Office 2.4";
 //const char* ssid = "Free Viruses";
 //const char* ssid = "TekSavvy";
-const char* password = "cracker70";
+
+//const char* password = "cracker70";
 
 AsyncWebServer server(80);
 
 // ----- DEFAULT SETTINGS ------
 int temp_in_c = 1; // Tempurature defaults to C 0 = farenheight
-float heater = 25; // Tempurature that shuts off the heater
+int heater = 25; // Tempurature that shuts off the heater in c
 float heater_delay = .5; // Delay heater power on initiation in minutes
 float moisture_delay = 2; // Delay between moisture sensing in minutes
 
@@ -60,9 +62,6 @@ millisDelay blinkDelay;
 int select_screen = 0;// to selet which main screen to display
 int select_screen_option_number = 0; // 0 = nothing selected so rotate screens. 1 = first option on screen, 2 = 2nd option etc
 int select_option = 0; 
-
-
-
 
 // ----- SET PINS ------------------
 // Pin 21 - SDA - RTC and LCD screen
@@ -565,7 +564,6 @@ bool next_ppm_dose_b = false;
 bool ppm_is_blinking = false; // if it should be blinking or not
 bool ppm_blink_cycle_on = false; // which cycle of the blink
 
-
 void ppmDosingInitilization()
   {
     pinMode(ppm_a_pin, OUTPUT); digitalWrite(ppm_a_pin, HIGH);
@@ -822,6 +820,7 @@ void displayTempurature()
     else {lcd.print(dht_tempF,1); lcd.print((char)223); lcd.print("F ");}
     lcd.print("  H:"); lcd.print(dht_humidity,0); lcd.print("%");
 
+    // EDIT UNITS
     lcd.setCursor(0,3); lcd.print("UNITS: ");
     lcd.setCursor(7,3);
     if (select_screen_option_number == 1) // edit mode blink selections
@@ -832,10 +831,10 @@ void displayTempurature()
             else {displayTempUnits(); blink_status_on = false;}
             blinkDelay.repeat();
           }
-          
       }
     else displayTempUnits();
 
+    // EDIT TEMP SET
     lcd.setCursor(13,0); lcd.print("SET:");
     lcd.setCursor(17,0);
     if (select_screen_option_number == 2) // edit mode blink selections
@@ -846,19 +845,16 @@ void displayTempurature()
             else {displayTempSet(); blink_status_on = false;}
             blinkDelay.repeat();
           }
-          
       }
     else displayTempSet();
-
-      
   }
 
 void displayPH()
   {
     lcd.setCursor(0,0); lcd.print(" PH: ");lcd.print(ph_value);
-    lcd.setCursor(0,1); lcd.print("SET: ");
-    //lcd.setCursor(5,1); lcd.print(ph_set_level);
 
+    // EDIT PH SET
+    lcd.setCursor(0,1); lcd.print("SET: ");
     lcd.setCursor(5,1);
     if (select_screen_option_number == 1) // edit set level
       {
@@ -868,20 +864,88 @@ void displayPH()
             else {lcd.print(ph_set_level); blink_status_on = false;}
             blinkDelay.repeat();
           }
-        
       }
     else lcd.print(ph_set_level);
+
+    // EDIT PH TOLERANCE
+    lcd.setCursor(0,2); lcd.print("TOLERANCE: ");
+    lcd.setCursor(9,2);
+    if (select_screen_option_number == 2) // edit set level
+      {
+        if (blinkDelay.justFinished())
+          {
+            if (blink_status_on == false) {lcd.print("     "); blink_status_on = true;}
+            else {lcd.print(ph_tolerance); blink_status_on = false;}
+            blinkDelay.repeat();
+          }
+      }
+    else lcd.print(ph_tolerance);
 
   }
 
 void displayTDS()
   {
-    lcd.setCursor(0,0); lcd.print("TDS");
+    lcd.setCursor(0,0); lcd.print("TDS: ");lcd.print(tds_value);
+
+    // EDIT TDS SET
+    lcd.setCursor(0,1); lcd.print("SET: ");
+    lcd.setCursor(5,1);
+    if (select_screen_option_number == 1) // edit set level
+      {
+        if (blinkDelay.justFinished())
+          {
+            if (blink_status_on == false) {lcd.print("      "); blink_status_on = true;}
+            else {lcd.print(ppm_set_level); blink_status_on = false;}
+            blinkDelay.repeat();
+          }
+      }
+    else lcd.print(ppm_set_level);
+
+    // EDIT PH TOLERANCE
+    lcd.setCursor(0,2); lcd.print("TOLERANCE: ");
+    lcd.setCursor(9,2);
+    if (select_screen_option_number == 2) // edit set level
+      {
+        if (blinkDelay.justFinished())
+          {
+            if (blink_status_on == false) {lcd.print("    "); blink_status_on = true;}
+            else {lcd.print(ppm_tolerance); blink_status_on = false;}
+            blinkDelay.repeat();
+          }
+      }
+    else lcd.print(ppm_tolerance);
   }
 
 void displayPump()
   {
-    lcd.setCursor(0,0); lcd.print("PUMP");
+    
+    // EDIT PUMP ON TIME
+    lcd.setCursor(0,0); lcd.print("PUMP ON TIME:");
+    lcd.setCursor(13,0);
+    if (select_screen_option_number == 1) // edit set level
+      {
+        if (blinkDelay.justFinished())
+          {
+            if (blink_status_on == false) {lcd.print("     "); blink_status_on = true;}
+            else {lcd.print(pump_on_time); blink_status_on = false;}
+            blinkDelay.repeat();
+          }
+      }
+    else lcd.print(pump_on_time);
+
+    // EDIT PH TOLERANCE
+    lcd.setCursor(0,1); lcd.print("PUMP OFF TIME :");
+    lcd.setCursor(15,1);
+    if (select_screen_option_number == 2) // edit set level
+      {
+        if (blinkDelay.justFinished())
+          {
+            if (blink_status_on == false) {lcd.print("     "); blink_status_on = true;}
+            else {lcd.print(pump_off_time); blink_status_on = false;}
+            blinkDelay.repeat();
+          }
+      }
+    else lcd.print(pump_off_time);
   }
 
 void displaySettings()
@@ -973,18 +1037,16 @@ void rotaryLoop()
                   case 0: // first click edit the fist tiem
                     // 2 options
                     rotaryEncoder.setBoundaries(0, 1, true);
-                    blinkDelay.restart();
-                    if(temp_in_c == 1) rotaryEncoder.setEncoderValue(1); // set encoder to current value
-                    else rotaryEncoder.setEncoderValue(0);
+                    blinkDelay.repeat();
+                    rotaryEncoder.setEncoderValue(temp_in_c); // set encoder to current value
                     select_screen_option_number = 1;
                   break;
                   case 1: // save the unit and select heat setting next
                     // save previous settings
-                    select_option = rotaryEncoder.readEncoder();
-                    temp_in_c = select_option;
-                    if (EEPROM.read(0) != select_option)
+                    temp_in_c = rotaryEncoder.readEncoder();
+                    if (EEPROM.read(0) != temp_in_c)
                       {
-                        EEPROM.write(0, select_option);
+                        EEPROM.write(0, temp_in_c);
                         EEPROM.commit();
                       }
                     // set rotary encoder to change temp set level
@@ -1012,14 +1074,110 @@ void rotaryLoop()
               switch(select_screen_option_number)
                 {
                   case 0: // fist click - edit ph set level
-                    select_screen_option_number = 1;
                     rotaryEncoder.setBoundaries(4 *10, 9 *10, false);
-                    rotaryEncoder.setEncoderValue(6.2 *10);
+                    rotaryEncoder.setEncoderValue(ph_set_level * 10);
+                    select_screen_option_number = 1;
+                    blinkDelay.repeat();
                     break;
-                  case 1: // set the value
-                    select_screen_option_number = 0;
+                  case 1: // set the ph set level
                     ph_set_level = rotaryEncoder.readEncoder() / 10.0;
+                    if (EEPROM.read(2) != ph_set_level * 10)
+                      {
+                        EEPROM.write(2, ph_set_level *10);
+                        EEPROM.commit();
+                      }
+                    rotaryEncoder.setBoundaries(4 *10, 9 *10, false);
+                    rotaryEncoder.setEncoderValue(ph_tolerance * 10);
+                    blinkDelay.repeat();
+                    select_screen_option_number = 2;
+                    break;
+                  case 2: // set the ph tolerence
+                    ph_tolerance = rotaryEncoder.readEncoder() / 10.0;
+                    if (EEPROM.read(3) != ph_tolerance * 10)
+                      {
+                        EEPROM.write(3, ph_tolerance *10);
+                        EEPROM.commit();
+                      }
+                    select_screen_option_number = 0;
+                    rotaryEncoder.setBoundaries(0, 5, true);
+                    break;
+                  }
+                break;
+
+            // PPM SCREEN
+            case 3: // ppm - enter set ph level
+              Serial.println("Case  Selected - Set Ppm");
+              switch(select_screen_option_number)
+                {
+                  case 0: // fist click - edit ppm set level
+                    rotaryEncoder.setBoundaries(100 /100, 5000 /100, false);
+                    rotaryEncoder.setEncoderValue(ppm_set_level /100);
+                    select_screen_option_number = 1;
+                    blinkDelay.repeat();
+                    break;
+                  case 1: // set the ppm set level
+                    ppm_set_level = rotaryEncoder.readEncoder() * 100;
+                    int ppm_set_1, ppm_set_2;
+                    if (ppm_set_level > 2500) {ppm_set_1 = 2500/100; ppm_set_2 = (ppm_set_level - ppm_set_1)/100;}
+                    else {ppm_set_1 = ppm_set_level / 100; ppm_set_2 = 0;}
+                    if (EEPROM.read(5) != ppm_set_1 || EEPROM.read(6) != ppm_set_2)
+                      {
+                        EEPROM.write(5, ppm_set_1); EEPROM.write(6, ppm_set_2);
+                        EEPROM.commit();
+                      }
+                    rotaryEncoder.setBoundaries(.1 * 10, 1 * 10, false);
+                    rotaryEncoder.setEncoderValue(ppm_tolerance * 10);
+                    blinkDelay.repeat();
+                    select_screen_option_number = 2;
+                    break;
+                  case 2: // set the ppm tolerence
+                    ppm_tolerance = rotaryEncoder.readEncoder() / 10.0;
+                    if (EEPROM.read(7) != ppm_tolerance * 10)
+                      {
+                        EEPROM.write(7, ppm_tolerance *10);
+                        EEPROM.commit();
+                      }
+                    select_screen_option_number = 0;
+                    rotaryEncoder.setBoundaries(0, 5, true);
+                    break;
                 }
+              break;
+
+            // PUMP SCREEN
+            case 4: // PUMP
+              Serial.println("Case  Selected - Set Pump timer");
+              switch(select_screen_option_number)
+                {
+                  case 0: // fist click - edit pump on time
+                    rotaryEncoder.setBoundaries(1, 60, true);
+                    rotaryEncoder.setEncoderValue(pump_on_time);
+                    select_screen_option_number = 1;
+                    blinkDelay.repeat();
+                    break;
+                  case 1: // set the set pump time
+                    pump_on_time = rotaryEncoder.readEncoder();
+                    if (EEPROM.read(8) != pump_on_time)
+                      {
+                        EEPROM.write(8, pump_on_time); 
+                        EEPROM.commit();
+                      }
+                    rotaryEncoder.setBoundaries(1, 180, true);
+                    rotaryEncoder.setEncoderValue(pump_off_time);
+                    blinkDelay.repeat();
+                    select_screen_option_number = 2;
+                    break;
+                  case 2: // set the pump off time
+                    pump_off_time = rotaryEncoder.readEncoder();
+                    if (EEPROM.read(9) != pump_off_time)
+                      {
+                        EEPROM.write(9, pump_off_time);
+                        EEPROM.commit();
+                      }
+                    select_screen_option_number = 0;
+                    rotaryEncoder.setBoundaries(0, 5, true);
+                    break;
+                }
+              break;
           }
       } // main if
   } // function if
@@ -1039,17 +1197,18 @@ void setup(void)
     EEPROM.begin(EEPROM_SIZE);
     if (EEPROM.read(0) != 255) temp_in_c = EEPROM.read(0); // temp units
     if (EEPROM.read(1) != 255) heater = EEPROM.read(1); // temp set
-    if (EEPROM.read(2) != 255) ph_set_level = EEPROM.read(2); // ph set level
+    if (EEPROM.read(2) != 255) ph_set_level = EEPROM.read(2) / 10; // ph set 
+    if (EEPROM.read(3) != 255) ph_tolerance = EEPROM.read(3); // ph tolerance
+    if (EEPROM.read(4) != 255) ph_calibration_adjustment = EEPROM.read(4);// ph calbration
+    if (EEPROM.read(5) != 255 && EEPROM.read(6) != 255) ppm_set_level = (EEPROM.read(5) + EEPROM.read(6)) * 100 ; // ppm set 1
+    if (EEPROM.read(7) != 255) ppm_tolerance = EEPROM.read(6); // ppm tolerance
+    if (EEPROM.read(8) != 255) pump_on_time = EEPROM.read(7);// pump on time
+    if (EEPROM.read(9) != 255) pump_off_time = EEPROM.read(8); // pump off time
 
-    Serial.print("EEPROM 0 : "); Serial.println(EEPROM.read(0));
-    Serial.print("EEPROM(1)  "  ); Serial.println(EEPROM.read(1));
-   Serial.print("EEPROM(2)  "  ); Serial.println(EEPROM.read(2));
-   Serial.print("EEPROM(3)  "  ); Serial.println(EEPROM.read(3));
-
-  
-
-
-
+    Serial.print("EEPROM 0 temp units : "); Serial.println(EEPROM.read(0));
+    Serial.print("EEPROM(1) temp set :  "  ); Serial.println(EEPROM.read(1));
+    Serial.print("EEPROM(2) ph set :  "  ); Serial.println(EEPROM.read(2));
+    Serial.print("EEPROM(3) ph tolerance : "  ); Serial.println(EEPROM.read(3));
 
     // Check to see if ADS initalized
     if (!ads.begin()) {Serial.println("Failed to initialize ADS."); while (1);}
