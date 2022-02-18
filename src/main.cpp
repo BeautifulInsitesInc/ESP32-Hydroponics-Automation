@@ -20,6 +20,7 @@
 #include <EEPROM.h> // to access flash memory
 
 LiquidCrystal_I2C lcd(0x27, 20, 4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
+//lcd.init(); // initiate the lcd
 SimpleTimer timer;
 Adafruit_ADS1115 ads; // Use this for the 16-bit version ADC
 
@@ -37,25 +38,25 @@ AsyncWebServer server(80);
 int temp_in_c = 1; // Tempurature defaults to C 0 = farenheight
 int heater = 25; // Tempurature that shuts off the heater in c
 float heater_delay = .5; // Delay heater power on initiation in minutes
-float moisture_delay = 2; // Delay between moisture sensing in minutes
+float moisture_delay = 1; // Delay between moisture sensing in minutes
 
 bool twelve_hour_clock = true; // Clock format
 
 float pump_init_delay = .5; // Minutes - Initial time before starting the pump on startup
-float pump_on_time = 1; // Minutes - how long the pump stays on for
-float pump_off_time = 2; // Minutes -  how long the pump stays off for
+int pump_on_time = 1; // Minutes - how long the pump stays on for
+int pump_off_time = 2; // Minutes -  how long the pump stays off for
 
 float ph_set_level = 6.9; // Desired pH level
-float ph_delay_minutes = 0.25;// miniumum period allowed between doses in minutes
-float ph_dose_seconds = 1; // Time Dosing pump runs per dose in seconds;
+int ph_delay_minutes = 5;// miniumum period allowed between doses in minutes
+int ph_dose_seconds = 1; // Time Dosing pump runs per dose in seconds;
 float ph_tolerance = 0.2; // how much can ph go from target before adjusting
 
 int ppm_set_level = 1; // Desired nutrient level
-float ppm_delay_minutes = .25; //period btween readings/doses in minutes
-float ppm_dose_seconds = 1; // Time Dosing pump runs per dose
+int ppm_delay_minutes = 5; //period btween readings/doses in minutes
+int ppm_dose_seconds = 1; // Time Dosing pump runs per dose
 int ppm_tolerance = 100; // nutrient level tolarance in ppm
 
-float blink_delay = 1; // blinking indicator blink speed in seconds
+float blink_delay = .5; // blinking indicator blink speed in seconds
 bool blink_status_on = false;// used to cycle theblinks
 millisDelay blinkDelay;
 
@@ -99,15 +100,32 @@ void setupWebServer()
     Serial.println("");
 
     // Wait for connection
-    while (WiFi.status() != WL_CONNECTED) {
-      delay(500);
-      Serial.print(".");
-    }
-    Serial.println("");
-    Serial.print("Connected to ");
-    Serial.println(ssid);
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
+    lcd.setCursor(0,0);
+    millisDelay connectionDelay;
+    connectionDelay.start(10000);
+    lcd.print("CONNECTING:");
+    while (WiFi.status() != WL_CONNECTED)
+      {
+        delay(500);
+        Serial.print(".");
+        lcd.print(".");
+        if (connectionDelay.justFinished()) break;
+      }
+    if (WiFi.status() == WL_CONNECTED)
+      {
+        Serial.println("");
+        Serial.print("Connected to ");
+        Serial.println(ssid);
+        Serial.print("IP address: ");
+        Serial.println(WiFi.localIP());
+        lcd.clear(); lcd.setCursor(0,0);
+        lcd.print("Connected to :"); lcd.setCursor(0,1); lcd.print(ssid);
+        lcd.setCursor(0,2); lcd.print("IP Address: "); lcd.setCursor(0,3); lcd.print(WiFi.localIP());
+        delay(10000);
+        lcd.clear();
+        }
+    else {lcd.clear(); Serial.print("FAILED TO CONNECT"); lcd.print("FAILED TO CONNECT"); delay(3000);}
+    
 
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
       request->send(200, "text/plain", "hello world");
@@ -574,7 +592,7 @@ void ppmDosingInitilization()
 void ppmDoseA()
   {
     digitalWrite(ppm_a_pin, LOW); // turn on ppm dosing pump
-    ppmDoseTimerA.start(ph_dose_seconds*1000); // start the pump
+    ppmDoseTimerA.start(ppm_dose_seconds*1000); // start the pump
     ppmDoseDelay.start(ppm_delay_minutes * 60 * 1000); // start delay before next dose is allowed
     Serial.println("Nutrient dose A has been started, timer is runnning");
     next_ppm_dose_b = true; // run ppm dose B next
@@ -585,7 +603,7 @@ void ppmDoseA()
 void ppmDoseB()
   {
     digitalWrite(ppm_b_pin, LOW); // turn on ppm dosing pump
-    ppmDoseTimerB.start(ph_dose_seconds*1000); // start the pump
+    ppmDoseTimerB.start(ppm_dose_seconds*1000); // start the pump
     ppmDoseDelay.start(ppm_delay_minutes * 60 * 1000); // start delay before next dose is allowed
     Serial.println("Nutrient dose A has been started, timer is runnning");
     ppmBlinkDelay.start(blink_delay*1000);
@@ -651,7 +669,7 @@ void doseTest()
 // =================================================
 void displaySplashscreen()// Display the splash screen
   {
-    lcd.init(); // Initialize LCD
+     // Initialize LCD
     lcd.backlight(); // Turn on the LCD backlight
     lcd.setCursor(1,0); lcd.print("CONCIERGE GROWERS");
     lcd.setCursor(5,1); lcd.print("Eat Good");
@@ -825,6 +843,7 @@ void displayTempurature()
     lcd.setCursor(7,3);
     if (select_screen_option_number == 1) // edit mode blink selections
       {
+        temp_in_c = select_option;
         if (blinkDelay.justFinished()) 
           {
             if(blink_status_on == false) {lcd.print("          ");blink_status_on = true;}
@@ -839,6 +858,7 @@ void displayTempurature()
     lcd.setCursor(17,0);
     if (select_screen_option_number == 2) // edit mode blink selections
       {
+        heater = select_option;
         if (blinkDelay.justFinished()) 
           {
             if(blink_status_on == false) {lcd.print("   ");blink_status_on = true;}
@@ -858,6 +878,7 @@ void displayPH()
     lcd.setCursor(5,1);
     if (select_screen_option_number == 1) // edit set level
       {
+        ph_set_level = (float)(select_option)/10;
         if (blinkDelay.justFinished())
           {
             if (blink_status_on == false) {lcd.print("     "); blink_status_on = true;}
@@ -868,10 +889,11 @@ void displayPH()
     else lcd.print(ph_set_level);
 
     // EDIT PH TOLERANCE
-    lcd.setCursor(0,2); lcd.print("TOLERANCE: ");
-    lcd.setCursor(9,2);
+    lcd.setCursor(0,2); lcd.print("TOL: ");
+    lcd.setCursor(5,2);
     if (select_screen_option_number == 2) // edit set level
       {
+        ph_tolerance = (float)select_option / 10;
         if (blinkDelay.justFinished())
           {
             if (blink_status_on == false) {lcd.print("     "); blink_status_on = true;}
@@ -880,6 +902,40 @@ void displayPH()
           }
       }
     else lcd.print(ph_tolerance);
+
+    // EDIT PH DOSE TIMER
+    lcd.setCursor(0,3); lcd.print("DOSE: ");
+    lcd.setCursor(6,3);
+    if (select_screen_option_number == 3) // edit set level
+      {
+        ph_dose_seconds = select_option;
+        if (blinkDelay.justFinished())
+          {
+            if (blink_status_on == false) {lcd.print("    "); blink_status_on = true;}
+            else {lcd.print(ph_dose_seconds); blink_status_on = false;}
+            blinkDelay.repeat();
+          }
+      }
+    else lcd.print(ph_dose_seconds);
+
+    // EDIT PH DOSE DELAY
+    lcd.setCursor(11,0); lcd.print("DELAY: ");
+    lcd.setCursor(17,0);
+    if (select_screen_option_number == 4) // edit set level
+      {
+        ph_delay_minutes = select_option;
+        if (blinkDelay.justFinished())
+          {
+            if (blink_status_on == false) {lcd.print("    "); blink_status_on = true;}
+            else {lcd.print(ph_delay_minutes); blink_status_on = false;}
+            blinkDelay.repeat();
+          }
+      }
+    else lcd.print(ph_delay_minutes);
+    
+    
+
+
 
   }
 
@@ -892,6 +948,7 @@ void displayTDS()
     lcd.setCursor(5,1);
     if (select_screen_option_number == 1) // edit set level
       {
+        ppm_set_level = select_option*100;
         if (blinkDelay.justFinished())
           {
             if (blink_status_on == false) {lcd.print("      "); blink_status_on = true;}
@@ -901,11 +958,12 @@ void displayTDS()
       }
     else lcd.print(ppm_set_level);
 
-    // EDIT PH TOLERANCE
-    lcd.setCursor(0,2); lcd.print("TOLERANCE: ");
-    lcd.setCursor(9,2);
+    // EDIT TDS TOLERANCE
+    lcd.setCursor(0,2); lcd.print("TOL: ");
+    lcd.setCursor(5,2);
     if (select_screen_option_number == 2) // edit set level
       {
+        ppm_tolerance = select_option*100;
         if (blinkDelay.justFinished())
           {
             if (blink_status_on == false) {lcd.print("    "); blink_status_on = true;}
@@ -914,16 +972,49 @@ void displayTDS()
           }
       }
     else lcd.print(ppm_tolerance);
+
+    // EDIT TDS DOSE TIMER
+    lcd.setCursor(0,3); lcd.print("DOSE: ");
+    lcd.setCursor(6,3);
+    if (select_screen_option_number == 3) // edit set level
+      {
+        ppm_dose_seconds = select_option;
+        if (blinkDelay.justFinished())
+          {
+            if (blink_status_on == false) {lcd.print("    "); blink_status_on = true;}
+            else {lcd.print(ppm_dose_seconds); blink_status_on = false;}
+            blinkDelay.repeat();
+          }
+      }
+    else lcd.print(ppm_dose_seconds);
+
+    // EDIT TDS DOSE DELAY
+    lcd.setCursor(11,0); lcd.print("DELAY: ");
+    lcd.setCursor(17,0);
+    if (select_screen_option_number == 4) // edit set level
+      {
+        ppm_delay_minutes = select_option;
+        if (blinkDelay.justFinished())
+          {
+            if (blink_status_on == false) {lcd.print("    "); blink_status_on = true;}
+            else {lcd.print(ppm_delay_minutes); blink_status_on = false;}
+            blinkDelay.repeat();
+          }
+      }
+    else lcd.print(ppm_delay_minutes);
+
   }
 
 void displayPump()
   {
     
     // EDIT PUMP ON TIME
-    lcd.setCursor(0,0); lcd.print("PUMP ON TIME:");
-    lcd.setCursor(13,0);
+    lcd.setCursor(0,0); lcd.print("PUMP  ON:");
+    lcd.setCursor(10,0);
     if (select_screen_option_number == 1) // edit set level
+      
       {
+        pump_on_time = select_option;
         if (blinkDelay.justFinished())
           {
             if (blink_status_on == false) {lcd.print("     "); blink_status_on = true;}
@@ -933,11 +1024,12 @@ void displayPump()
       }
     else lcd.print(pump_on_time);
 
-    // EDIT PH TOLERANCE
-    lcd.setCursor(0,1); lcd.print("PUMP OFF TIME :");
-    lcd.setCursor(15,1);
+    // EDIT PUMP OFF TIME
+    lcd.setCursor(0,1); lcd.print("PUMP OFF:");
+    lcd.setCursor(10,1);
     if (select_screen_option_number == 2) // edit set level
       {
+        pump_off_time = select_option;
         if (blinkDelay.justFinished())
           {
             if (blink_status_on == false) {lcd.print("     "); blink_status_on = true;}
@@ -946,6 +1038,10 @@ void displayPump()
           }
       }
     else lcd.print(pump_off_time);
+    //DISPLAY SOIL HUMIDITY
+    lcd.setCursor(0,2); lcd.print("SOIL HUM:"); lcd.print(moisture_value); lcd.print("%");
+
+
   }
 
 void displaySettings()
@@ -1065,6 +1161,7 @@ void rotaryLoop()
                       }
                     select_screen_option_number = 0;
                     rotaryEncoder.setBoundaries(0, 5, true); // retrun to flipping screens
+                    rotaryEncoder.setEncoderValue(1); // send it back to this screen
                   break;
                 }
               break;
@@ -1086,21 +1183,47 @@ void rotaryLoop()
                         EEPROM.write(2, ph_set_level *10);
                         EEPROM.commit();
                       }
-                    rotaryEncoder.setBoundaries(4 *10, 9 *10, false);
+                    rotaryEncoder.setBoundaries(.1 *10, .9 *10, false);
                     rotaryEncoder.setEncoderValue(ph_tolerance * 10);
                     blinkDelay.repeat();
                     select_screen_option_number = 2;
                     break;
                   case 2: // set the ph tolerence
-                    ph_tolerance = rotaryEncoder.readEncoder() / 10.0;
+                    ph_tolerance = (float)rotaryEncoder.readEncoder() / 10.0;
                     if (EEPROM.read(3) != ph_tolerance * 10)
                       {
                         EEPROM.write(3, ph_tolerance *10);
                         EEPROM.commit();
                       }
+                    select_screen_option_number = 3;
+                    rotaryEncoder.setBoundaries(0, 10, true);
+                    rotaryEncoder.setEncoderValue(ph_dose_seconds); // send it back to this screen
+                    break;
+                  case 3: // set the PH dose time
+                    ph_dose_seconds = rotaryEncoder.readEncoder();
+                    if (EEPROM.read(13) != ppm_dose_seconds)
+                      {
+                        EEPROM.write(13, ppm_dose_seconds);
+                        EEPROM.commit();
+                      }
+                    
+                    select_screen_option_number = 4;
+                    rotaryEncoder.setBoundaries(0, 120, true);
+                    rotaryEncoder.setEncoderValue(ph_delay_minutes); // send it back to this screen
+                    break;
+                  case 4: // set the PH Dealy
+                    ph_delay_minutes = rotaryEncoder.readEncoder();
+                    if (EEPROM.read(12) != ph_delay_minutes)
+                      {
+                        EEPROM.write(12, ph_delay_minutes);
+                        EEPROM.commit();
+                      }
                     select_screen_option_number = 0;
                     rotaryEncoder.setBoundaries(0, 5, true);
-                    break;
+                    rotaryEncoder.setEncoderValue(2); // send it back to this screen
+
+
+
                   }
                 break;
 
@@ -1125,21 +1248,45 @@ void rotaryLoop()
                         EEPROM.write(5, ppm_set_1); EEPROM.write(6, ppm_set_2);
                         EEPROM.commit();
                       }
-                    rotaryEncoder.setBoundaries(.1 * 10, 1 * 10, false);
-                    rotaryEncoder.setEncoderValue(ppm_tolerance * 10);
+                    rotaryEncoder.setBoundaries(100 / 100, 500 / 100, false);
+                    rotaryEncoder.setEncoderValue(ppm_tolerance / 100);
                     blinkDelay.repeat();
                     select_screen_option_number = 2;
                     break;
                   case 2: // set the ppm tolerence
-                    ppm_tolerance = rotaryEncoder.readEncoder() / 10.0;
-                    if (EEPROM.read(7) != ppm_tolerance * 10)
+                    ppm_tolerance = rotaryEncoder.readEncoder() *100;
+                    if (EEPROM.read(7) != ppm_tolerance / 100)
                       {
-                        EEPROM.write(7, ppm_tolerance *10);
+                        EEPROM.write(7, ppm_tolerance /100);
+                        EEPROM.commit();
+                      }
+                    select_screen_option_number = 3;
+                    rotaryEncoder.setBoundaries(0, 10, true);
+                    rotaryEncoder.setEncoderValue(ppm_dose_seconds); // send it back to this screen
+                    break;
+                  case 3: // set the ppm dose time
+                    ppm_dose_seconds = rotaryEncoder.readEncoder();
+                    if (EEPROM.read(10) != ppm_dose_seconds)
+                      {
+                        EEPROM.write(10, ppm_dose_seconds);
+                        EEPROM.commit();
+                      }
+                    
+                    select_screen_option_number = 4;
+                    rotaryEncoder.setBoundaries(0, 120, true);
+                    rotaryEncoder.setEncoderValue(3); // send it back to this screen
+                    break;
+                  case 4: // set the PPM Delay
+                    ppm_delay_minutes = rotaryEncoder.readEncoder();
+                    if (EEPROM.read(11) != ppm_delay_minutes)
+                      {
+                        EEPROM.write(11, ppm_delay_minutes);
                         EEPROM.commit();
                       }
                     select_screen_option_number = 0;
                     rotaryEncoder.setBoundaries(0, 5, true);
-                    break;
+                    rotaryEncoder.setEncoderValue(3); // send it back to this screen
+
                 }
               break;
 
@@ -1149,7 +1296,7 @@ void rotaryLoop()
               switch(select_screen_option_number)
                 {
                   case 0: // fist click - edit pump on time
-                    rotaryEncoder.setBoundaries(1, 60, true);
+                    rotaryEncoder.setBoundaries(1, 60, false);
                     rotaryEncoder.setEncoderValue(pump_on_time);
                     select_screen_option_number = 1;
                     blinkDelay.repeat();
@@ -1161,9 +1308,10 @@ void rotaryLoop()
                         EEPROM.write(8, pump_on_time); 
                         EEPROM.commit();
                       }
-                    rotaryEncoder.setBoundaries(1, 180, true);
+                    rotaryEncoder.setBoundaries(1, 180, false);
                     rotaryEncoder.setEncoderValue(pump_off_time);
                     blinkDelay.repeat();
+                    pumpOnTimer.start(pump_on_time*60*1000);
                     select_screen_option_number = 2;
                     break;
                   case 2: // set the pump off time
@@ -1174,7 +1322,9 @@ void rotaryLoop()
                         EEPROM.commit();
                       }
                     select_screen_option_number = 0;
+                    pumpOffTimer.start(pump_off_time * 60 * 1000);
                     rotaryEncoder.setBoundaries(0, 5, true);
+                    rotaryEncoder.setEncoderValue(4); // send it back to this screen
                     break;
                 }
               break;
@@ -1187,23 +1337,33 @@ void rotaryLoop()
 // ==================================================
 void setup(void)
   {
+    //initilize lcd
+    
+    lcd.init(); // initiate the lcd
+    lcd.backlight(); // Turn on the LCD backlight
+
+    
     Serial.begin(115200);// start serial port 115200
     Serial.println("Starting Hydroponics Automation Controler");
     timer.run(); // Initiates SimpleTimer
     setupWebServer();
 
     // Stored Defaults
-    #define EEPROM_SIZE 11
+    #define EEPROM_SIZE 14
     EEPROM.begin(EEPROM_SIZE);
     if (EEPROM.read(0) != 255) temp_in_c = EEPROM.read(0); // temp units
     if (EEPROM.read(1) != 255) heater = EEPROM.read(1); // temp set
-    if (EEPROM.read(2) != 255) ph_set_level = EEPROM.read(2) / 10; // ph set 
-    if (EEPROM.read(3) != 255) ph_tolerance = EEPROM.read(3); // ph tolerance
+    if (EEPROM.read(2) != 255) ph_set_level = (float)EEPROM.read(2) / 10; // ph set 
+    if (EEPROM.read(3) != 255) ph_tolerance = (float)EEPROM.read(3) / 10; // ph tolerance
     if (EEPROM.read(4) != 255) ph_calibration_adjustment = EEPROM.read(4);// ph calbration
     if (EEPROM.read(5) != 255 && EEPROM.read(6) != 255) ppm_set_level = (EEPROM.read(5) + EEPROM.read(6)) * 100 ; // ppm set 1
-    if (EEPROM.read(7) != 255) ppm_tolerance = EEPROM.read(6); // ppm tolerance
+    if (EEPROM.read(7) != 255) ppm_tolerance = EEPROM.read(7)*100; // ppm tolerance
     if (EEPROM.read(8) != 255) pump_on_time = EEPROM.read(7);// pump on time
     if (EEPROM.read(9) != 255) pump_off_time = EEPROM.read(8); // pump off time
+    if (EEPROM.read(10) != 255) ppm_dose_seconds = EEPROM.read(10); // pump off time
+    if (EEPROM.read(11) != 255) ppm_delay_minutes = EEPROM.read(11); // PPM dose delay
+    if (EEPROM.read(12) != 255) ph_delay_minutes = EEPROM.read(12); // ph dose delay
+    if (EEPROM.read(13) != 255) ph_dose_seconds = EEPROM.read(13); // ph dose delay
 
     Serial.print("EEPROM 0 temp units : "); Serial.println(EEPROM.read(0));
     Serial.print("EEPROM(1) temp set :  "  ); Serial.println(EEPROM.read(1));
@@ -1232,9 +1392,12 @@ void setup(void)
     displayMainscreenstatic();
     select_screen_option_number = 0;
 
-    //doseTest(); //used to test ph dosing motors
+    doseTest(); //used to test ph dosing motors
 
     //testFileUpload();
+
+    //initialize blink delay
+    blinkDelay.start(blink_delay*1000);
   }
 
 // ====================================================
