@@ -1108,224 +1108,164 @@ void rotaryLoop()
             lcd.clear();
             selectScreen();
           }
-        else
-          {
-            select_option = rotaryEncoder.readEncoder();
-          }           
+        else select_option = rotaryEncoder.readEncoder();           
       } 
-    else // if encoder has not changed refresh data
-      {
-        selectScreen();
-      }
+    else selectScreen();// if encoder has not changed refresh data
     // =============== ROTARY CLICKED ====================================
     if (rotaryEncoder.isEncoderButtonClicked())
       {
         Serial.print("Click!  "); Serial.println(rotaryEncoder.readEncoder());
-        switch(select_screen)
-          {
-            case 0: // main screen do nothing
-              Serial.println("selected main screen");
-              break;
-            // TEMURATURE SCREEN  
-            case 1: // tempurature - enter set unites mode
-              switch(select_screen_option_number)
-                {
-                  case 0: // first click edit the fist tiem
-                    // 2 options
-                    rotaryEncoder.setBoundaries(0, 1, true);
-                    blinkDelay.repeat();
-                    rotaryEncoder.setEncoderValue(temp_in_c); // set encoder to current value
-                    select_screen_option_number = 1;
-                  break;
-                  case 1: // save the unit and select heat setting next
-                    // save previous settings
-                    temp_in_c = rotaryEncoder.readEncoder();
-                    if (EEPROM.read(0) != temp_in_c)
-                      {
-                        EEPROM.write(0, temp_in_c);
-                        EEPROM.commit();
-                      }
-                    // set rotary encoder to change temp set level
-                    rotaryEncoder.setBoundaries(15, 30, false);
-                    rotaryEncoder.setEncoderValue(heater); // set encoder to current temp setting
-                    select_screen_option_number = 2;
-                  break;
-                  case 2: 
-                    // save the temp set level and exit
-                    select_option = rotaryEncoder.readEncoder();
-                    heater = select_option;
-                    if (EEPROM.read(1) != heater) 
-                      {
-                        EEPROM.write(1, heater);
-                        EEPROM.commit();
-                      }
-                    select_screen_option_number = 0;
-                    rotaryEncoder.setBoundaries(0, 5, true); // retrun to flipping screens
-                    rotaryEncoder.setEncoderValue(1); // send it back to this screen
-                  break;
-                }
-              break;
+        switch(select_screen) {
+          // MAIN SCREEN
+          case 0: 
+            Serial.println("selected main screen");
+            break;
+          // TEMURATURE SCREEN  
+          case 1: // tempurature - enter set unites mode
+            switch(select_screen_option_number) {
+              // Prepare to edit units
+              case 0: 
+                rotaryEncoder.setBoundaries(0, 1, true);
+                blinkDelay.repeat();
+                rotaryEncoder.setEncoderValue(temp_in_c); // set encoder to current value
+                select_screen_option_number = 1;
+                break;
+              // Save unit and prepare to edit heat set level
+              case 1: 
+                temp_in_c = rotaryEncoder.readEncoder();
+                if (EEPROM.read(0) != temp_in_c) {EEPROM.write(0, temp_in_c); EEPROM.commit();}
+                rotaryEncoder.setBoundaries(15, 30, false); // Tempurature set range
+                rotaryEncoder.setEncoderValue(heater); // set encoder to current temp setting
+                select_screen_option_number = 2;
+                break;
+              // Save heat set level and go back to main menu to choose screens
+              case 2: 
+                select_option = rotaryEncoder.readEncoder();
+                heater = select_option;
+                if (EEPROM.read(1) != heater) {EEPROM.write(1, heater); EEPROM.commit(); }
+                select_screen_option_number = 0;
+                rotaryEncoder.setBoundaries(0, 5, true); // retrun to flipping screens
+                rotaryEncoder.setEncoderValue(1); // send it back to this screen
+                break;
+              }
+              break; // Case 1 - Tempurature
+
             // PH SCREEN
             case 2: // PH - enter set ph level
-              Serial.println("Case 4 Selected - Set PH");
-              switch(select_screen_option_number)
-                {
-                  case 0: // fist click - edit ph set level
-                    rotaryEncoder.setBoundaries(4 *10, 9 *10, false);
-                    rotaryEncoder.setEncoderValue(ph_set_level * 10);
-                    select_screen_option_number = 1;
-                    blinkDelay.repeat();
-                    break;
-                  case 1: // set the ph set level
-                    ph_set_level = rotaryEncoder.readEncoder() / 10.0;
-                    if (EEPROM.read(2) != ph_set_level * 10)
-                      {
-                        EEPROM.write(2, ph_set_level *10);
-                        EEPROM.commit();
-                      }
-                    rotaryEncoder.setBoundaries(.1 *10, .9 *10, false);
-                    rotaryEncoder.setEncoderValue(ph_tolerance * 10);
-                    blinkDelay.repeat();
-                    select_screen_option_number = 2;
-                    break;
-                  case 2: // set the ph tolerence
-                    ph_tolerance = (float)rotaryEncoder.readEncoder() / 10.0;
-                    if (EEPROM.read(3) != ph_tolerance * 10)
-                      {
-                        EEPROM.write(3, ph_tolerance *10);
-                        EEPROM.commit();
-                      }
-                    select_screen_option_number = 3;
-                    rotaryEncoder.setBoundaries(0, 10, true);
-                    rotaryEncoder.setEncoderValue(ph_dose_seconds); // send it back to this screen
-                    break;
-                  case 3: // set the PH dose time
-                    ph_dose_seconds = rotaryEncoder.readEncoder();
-                    if (EEPROM.read(13) != ppm_dose_seconds)
-                      {
-                        EEPROM.write(13, ppm_dose_seconds);
-                        EEPROM.commit();
-                      }
-                    
-                    select_screen_option_number = 4;
-                    rotaryEncoder.setBoundaries(0, 120, true);
-                    rotaryEncoder.setEncoderValue(ph_delay_minutes); // send it back to this screen
-                    break;
-                  case 4: // set the PH Dealy
-                    ph_delay_minutes = rotaryEncoder.readEncoder();
-                    if (EEPROM.read(12) != ph_delay_minutes)
-                      {
-                        EEPROM.write(12, ph_delay_minutes);
-                        EEPROM.commit();
-                      }
-                    select_screen_option_number = 0;
-                    rotaryEncoder.setBoundaries(0, 5, true);
-                    rotaryEncoder.setEncoderValue(2); // send it back to this screen
-
-
-
-                  }
+              switch(select_screen_option_number) {
+                case 0: // Prepare to edit ph set level
+                  rotaryEncoder.setBoundaries(4 *10, 9 *10, false); //ph level range
+                  rotaryEncoder.setEncoderValue(ph_set_level * 10); // *10 to deal with 1 decipmal place
+                  select_screen_option_number = 1;
+                  blinkDelay.repeat();
+                  break;
+                case 1: // set the ph set level and prepare to edit tolerance
+                  ph_set_level = rotaryEncoder.readEncoder() / 10.0;
+                  if (EEPROM.read(2) != ph_set_level * 10) {EEPROM.write(2, ph_set_level *10); EEPROM.commit();}
+                  rotaryEncoder.setBoundaries(.1 *10, .9 *10, false);
+                  rotaryEncoder.setEncoderValue(ph_tolerance * 10);
+                  blinkDelay.repeat();
+                  select_screen_option_number = 2;
+                  break;
+                case 2: // set the ph tolarance and prepare to edit dose time
+                  ph_tolerance = (float)rotaryEncoder.readEncoder() / 10.0;
+                  if (EEPROM.read(3) != ph_tolerance * 10){EEPROM.write(3, ph_tolerance *10);EEPROM.commit();}
+                  select_screen_option_number = 3;
+                  rotaryEncoder.setBoundaries(0, 20, true);
+                  rotaryEncoder.setEncoderValue(ph_dose_seconds); // send it back to this screen
+                  break;
+                case 3: // set the PH dose time and prepare to edit ph delay
+                  ph_dose_seconds = rotaryEncoder.readEncoder();
+                  if (EEPROM.read(13) != ppm_dose_seconds) {EEPROM.write(13, ppm_dose_seconds); EEPROM.commit();}
+                  select_screen_option_number = 4;
+                  rotaryEncoder.setBoundaries(0, 120, true);
+                  rotaryEncoder.setEncoderValue(ph_delay_minutes); // send it back to this screen
+                  break;
+                case 4: // set the PH Dealy and go back to main menu
+                  ph_delay_minutes = rotaryEncoder.readEncoder();
+                  if (EEPROM.read(12) != ph_delay_minutes){EEPROM.write(12, ph_delay_minutes); EEPROM.commit();}
+                  select_screen_option_number = 0;
+                  rotaryEncoder.setBoundaries(0, 5, true);
+                  rotaryEncoder.setEncoderValue(2); // send it back to this screen
+                  break;
+                } // end of case 2 switch
                 break;
 
             // PPM SCREEN
-            case 3: // ppm - enter set ph level
+            case 3: 
               Serial.println("Case  Selected - Set Ppm");
-              switch(select_screen_option_number)
-                {
-                  case 0: // fist click - edit ppm set level
-                    rotaryEncoder.setBoundaries(100 /100, 5000 /100, false);
-                    rotaryEncoder.setEncoderValue(ppm_set_level /100);
-                    select_screen_option_number = 1;
-                    blinkDelay.repeat();
-                    break;
-                  case 1: // set the ppm set level
-                    ppm_set_level = rotaryEncoder.readEncoder() * 100;
-                    int ppm_set_1, ppm_set_2;
-                    if (ppm_set_level > 2500) {ppm_set_1 = 2500/100; ppm_set_2 = (ppm_set_level - ppm_set_1)/100;}
-                    else {ppm_set_1 = ppm_set_level / 100; ppm_set_2 = 0;}
-                    if (EEPROM.read(5) != ppm_set_1 || EEPROM.read(6) != ppm_set_2)
-                      {
-                        EEPROM.write(5, ppm_set_1); EEPROM.write(6, ppm_set_2);
-                        EEPROM.commit();
-                      }
-                    rotaryEncoder.setBoundaries(100 / 100, 500 / 100, false);
-                    rotaryEncoder.setEncoderValue(ppm_tolerance / 100);
-                    blinkDelay.repeat();
-                    select_screen_option_number = 2;
-                    break;
-                  case 2: // set the ppm tolerence
-                    ppm_tolerance = rotaryEncoder.readEncoder() *100;
-                    if (EEPROM.read(7) != ppm_tolerance / 100)
-                      {
-                        EEPROM.write(7, ppm_tolerance /100);
-                        EEPROM.commit();
-                      }
-                    select_screen_option_number = 3;
-                    rotaryEncoder.setBoundaries(0, 10, true);
-                    rotaryEncoder.setEncoderValue(ppm_dose_seconds); // send it back to this screen
-                    break;
-                  case 3: // set the ppm dose time
-                    ppm_dose_seconds = rotaryEncoder.readEncoder();
-                    if (EEPROM.read(10) != ppm_dose_seconds)
-                      {
-                        EEPROM.write(10, ppm_dose_seconds);
-                        EEPROM.commit();
-                      }
-                    
-                    select_screen_option_number = 4;
-                    rotaryEncoder.setBoundaries(0, 120, true);
-                    rotaryEncoder.setEncoderValue(3); // send it back to this screen
-                    break;
-                  case 4: // set the PPM Delay
-                    ppm_delay_minutes = rotaryEncoder.readEncoder();
-                    if (EEPROM.read(11) != ppm_delay_minutes)
-                      {
-                        EEPROM.write(11, ppm_delay_minutes);
-                        EEPROM.commit();
-                      }
-                    select_screen_option_number = 0;
-                    rotaryEncoder.setBoundaries(0, 5, true);
-                    rotaryEncoder.setEncoderValue(3); // send it back to this screen
-
+              switch(select_screen_option_number){
+                case 0: // prepare to edit PPM set level
+                  rotaryEncoder.setBoundaries(100 /100, 5000 /100, false);
+                  rotaryEncoder.setEncoderValue(ppm_set_level /100);
+                  select_screen_option_number = 1;
+                  blinkDelay.repeat();
+                  break;
+                case 1: // Set ph set level and prepare to edit ph tolerance
+                  ppm_set_level = rotaryEncoder.readEncoder() * 100;
+                  int ppm_set_1, ppm_set_2; // ppm set number is too large for flash memoy, so using 2 locations.
+                  if (ppm_set_level > 2500) {ppm_set_1 = 2500/100; ppm_set_2 = (ppm_set_level - ppm_set_1)/100;}
+                  else {ppm_set_1 = ppm_set_level / 100; ppm_set_2 = 0;}
+                  if (EEPROM.read(5) != ppm_set_1 || EEPROM.read(6) != ppm_set_2)
+                    {
+                      EEPROM.write(5, ppm_set_1); EEPROM.write(6, ppm_set_2);
+                      EEPROM.commit();
+                    }
+                  rotaryEncoder.setBoundaries(100 / 100, 500 / 100, false); // setting tolorance range
+                  rotaryEncoder.setEncoderValue(ppm_tolerance / 100);
+                  blinkDelay.repeat();
+                  select_screen_option_number = 2;
+                  break;
+                case 2: // set the ppm tolerence and prepare for dose time
+                  ppm_tolerance = rotaryEncoder.readEncoder() *100;
+                  if (EEPROM.read(7) != ppm_tolerance / 100) {EEPROM.write(7, ppm_tolerance /100); EEPROM.commit();}
+                  select_screen_option_number = 3;
+                  rotaryEncoder.setBoundaries(0, 20, true);
+                  rotaryEncoder.setEncoderValue(ppm_dose_seconds); // send it back to this screen
+                  break;
+                case 3: // set the ppm dose time and prepare to set delay
+                  ppm_dose_seconds = rotaryEncoder.readEncoder();
+                  if (EEPROM.read(10) != ppm_dose_seconds) {EEPROM.write(10, ppm_dose_seconds); EEPROM.commit();}
+                  select_screen_option_number = 4;
+                  rotaryEncoder.setBoundaries(0, 120, true);
+                  rotaryEncoder.setEncoderValue(3); // send it back to this screen
+                  break;
+                case 4: // set the PPM Delay and return to main menu
+                  ppm_delay_minutes = rotaryEncoder.readEncoder();
+                  if (EEPROM.read(11) != ppm_delay_minutes) {EEPROM.write(11, ppm_delay_minutes); EEPROM.commit();}
+                  select_screen_option_number = 0;
+                  rotaryEncoder.setBoundaries(0, 5, true);
+                  rotaryEncoder.setEncoderValue(3); // send it back to this screen
+                  break;
                 }
-              break;
+              break; // end of case 3 PPM switch
 
             // PUMP SCREEN
             case 4: // PUMP
-              Serial.println("Case  Selected - Set Pump timer");
-              switch(select_screen_option_number)
-                {
-                  case 0: // fist click - edit pump on time
-                    rotaryEncoder.setBoundaries(1, 60, false);
-                    rotaryEncoder.setEncoderValue(pump_on_time);
-                    select_screen_option_number = 1;
-                    blinkDelay.repeat();
-                    break;
-                  case 1: // set the set pump time
-                    pump_on_time = rotaryEncoder.readEncoder();
-                    if (EEPROM.read(8) != pump_on_time)
-                      {
-                        EEPROM.write(8, pump_on_time); 
-                        EEPROM.commit();
-                      }
-                    rotaryEncoder.setBoundaries(1, 180, false);
-                    rotaryEncoder.setEncoderValue(pump_off_time);
-                    blinkDelay.repeat();
-                    pumpOnTimer.start(pump_on_time*60*1000);
-                    select_screen_option_number = 2;
-                    break;
-                  case 2: // set the pump off time
-                    pump_off_time = rotaryEncoder.readEncoder();
-                    if (EEPROM.read(9) != pump_off_time)
-                      {
-                        EEPROM.write(9, pump_off_time);
-                        EEPROM.commit();
-                      }
-                    select_screen_option_number = 0;
-                    pumpOffTimer.start(pump_off_time * 60 * 1000);
-                    rotaryEncoder.setBoundaries(0, 5, true);
-                    rotaryEncoder.setEncoderValue(4); // send it back to this screen
-                    break;
+              switch(select_screen_option_number) {
+                case 0: // prepare to edit pump on time
+                  rotaryEncoder.setBoundaries(1, 60, false);
+                  rotaryEncoder.setEncoderValue(pump_on_time);
+                  select_screen_option_number = 1;
+                  blinkDelay.repeat();
+                  break;
+                case 1: // set the set pump on time and prepare to edit off time
+                  pump_on_time = rotaryEncoder.readEncoder();
+                  if (EEPROM.read(8) != pump_on_time) {EEPROM.write(8, pump_on_time); EEPROM.commit();}
+                  rotaryEncoder.setBoundaries(1, 180, false);
+                  rotaryEncoder.setEncoderValue(pump_off_time);
+                  blinkDelay.repeat();
+                  pumpOnTimer.start(pump_on_time*60*1000);
+                  select_screen_option_number = 2;
+                  break;
+                case 2: // set the pump off time and return to main
+                  pump_off_time = rotaryEncoder.readEncoder();
+                  if (EEPROM.read(9) != pump_off_time) {EEPROM.write(9, pump_off_time); EEPROM.commit();}
+                  select_screen_option_number = 0;
+                  pumpOffTimer.start(pump_off_time * 60 * 1000);
+                  rotaryEncoder.setBoundaries(0, 5, true);
+                  rotaryEncoder.setEncoderValue(4); // send it back to this screen
+                  break;
                 }
               break;
           }
