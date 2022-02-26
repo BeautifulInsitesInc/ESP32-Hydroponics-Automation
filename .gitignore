@@ -37,6 +37,7 @@
 .vscode/ipch
 .vscode/*
 lib/*
+api_key/*
 
 
 
