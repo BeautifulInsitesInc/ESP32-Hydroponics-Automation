@@ -22,6 +22,10 @@
 #include <addons/TokenHelper.h>//Provide the token generation process info.
 #include <addons/RTDBHelper.h>//Provide the RTDB payload printing info and other helper functions.
 
+// ---- FIREBASE SETUP --------------------------
+#define DEVICE_UID "1X"// Device ID
+#define API_KEY ""// Your Firebase Project Web API Key
+#define DATABASE_URL ""// Your Firebase Realtime database URL
 
 LiquidCrystal_I2C lcd(0x27, 20, 4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 SimpleTimer timer;
@@ -149,96 +153,6 @@ void testFileUpload() {
     Serial.print(file.read());
   }
   file.close();
-}
-
-
-// ==================================================
-// ===========  FIREBASE ============================
-// ==================================================
-#define DEVICE_UID "1X"// Device ID
-#define API_KEY "nanynanybooboo"// Your Firebase Project Web API Key
-#define DATABASE_URL "somurl"// Your Firebase Realtime database URL
-
-String device_location = "Room 1"; // Device Location config
-FirebaseData fbdo; // Firebase Realtime Database Object
-FirebaseAuth auth; // Firebase Authentication Object
-FirebaseConfig config; // Firebase configuration Object
-String databasePath = ""; // Firebase database path
-String fuid = ""; // Firebase Unique Identifier
-unsigned long elapsedMillis = 0; // Stores the elapsed time from device start up
-unsigned long update_interval = 10000; // The frequency of sensor updates to firebase, set to 10seconds
-int count = 0; // Dummy counter to test initial firebase updates
-bool isAuthenticated = false;// Store device authentication status
-
-void firebase_init() {
-  config.api_key = API_KEY;// configure firebase API Key
-  config.database_url = DATABASE_URL;// configure firebase realtime database url
-  Firebase.reconnectWiFi(true);// Enable WiFi reconnection 
-  Serial.println("------------------------------------");
-  Serial.println("Sign up new user...");
-  if (Firebase.signUp(&config, &auth, "", ""))// Sign in to firebase Anonymously
-    {
-      Serial.println("Success");
-      isAuthenticated = true;
-      databasePath = "/" + device_location;// Set the database path where updates will be loaded for this device
-      fuid = auth.token.uid.c_str();
-      lcd.clear(); lcd.print("Signed into Firebase!");
-    }
-  else
-    {
-      Serial.printf("Failed, %s\n", config.signer.signupError.message.c_str());
-      isAuthenticated = false;
-    }
-  config.token_status_callback = tokenStatusCallback;// Assign the callback function for the long running token generation task, see addons/TokenHelper.h
-  Firebase.begin(&config, &auth);// Initialise the firebase library
-}
-
-void sendToFirebase() {
-  
-    if (millis() - elapsedMillis > update_interval && isAuthenticated && Firebase.ready())// Check that 10 seconds has elapsed before, device is authenticated and the firebase service is ready.
-      {
-        elapsedMillis = millis();
-        Firebase.setFloat(fbdo, databasePath + "/pH", ph_value);
-        Firebase.setFloat(fbdo, databasePath + "/Water Tempurature", tempC);
-        Firebase.setFloat(fbdo, databasePath + "/TDS", tds_value);
-        Firebase.setFloat(fbdo, databasePath + "/Room Tempurature", dht_tempC);
-        Firebase.setFloat(fbdo, databasePath + "/Humidity", dht_humidity);
-        Firebase.setString(fbdo, databasePath + "/Pump Status", pump_status);
-        Firebase.setString(fbdo, databasePath + "/Heater Status", heater_status);
-      }
-}
-
-void database_test() {
-
-if (millis() - elapsedMillis > update_interval && isAuthenticated && Firebase.ready())// Check that 10 seconds has elapsed before, device is authenticated and the firebase service is ready.
-  {
-    elapsedMillis = millis();
-    Serial.println("------------------------------------");
-    Serial.println("Set int test...");
-    String pH = databasePath + "/ph";// Specify the key value for our data and append it to our path
-    String TDS = databasePath + "/tds";
-    String waterTemp = databasePath + "water_temp";
-
-
-    if (Firebase.set(fbdo, node.c_str(), count++))// Send the value our count to the firebase realtime database 
-      {
-        Serial.println("PASSED");// Print firebase server response
-        Serial.println("PATH: " + fbdo.dataPath());
-        Serial.println("TYPE: " + fbdo.dataType());
-        Serial.println("ETag: " + fbdo.ETag());
-        Serial.print("VALUE: ");
-        printResult(fbdo); //see addons/RTDBHelper.h
-        Serial.println("------------------------------------");
-        Serial.println();
-      }
-    else
-      {
-      Serial.println("FAILED");
-      Serial.println("REASON: " + fbdo.errorReason());
-      Serial.println("------------------------------------");
-      Serial.println();
-      }
-  }
 }
 
 // *************** CALIBRATION FUNCTION ******************
@@ -550,7 +464,7 @@ void pumpTimer() {
     }
   }
   setPumpSeconds();
-  if (digitalRead(pump_pin == 0)) pump_status = "OFF");
+  if (digitalRead(pump_pin == 0)) pump_status = "OFF";
   else pump_status = "ON";
 }
 
@@ -1177,6 +1091,58 @@ void rotaryLoop() {
       }
   } // main if
 } // function if
+
+// ==================================================
+// ===========  FIREBASE ============================
+// ==================================================
+String device_location = "Room 1"; // Device Location config
+FirebaseData fbdo; // Firebase Realtime Database Object
+FirebaseAuth auth; // Firebase Authentication Object
+FirebaseConfig config; // Firebase configuration Object
+String databasePath = ""; // Firebase database path
+String fuid = ""; // Firebase Unique Identifier
+unsigned long elapsedMillis = 0; // Stores the elapsed time from device start up
+unsigned long update_interval = 10000; // The frequency of sensor updates to firebase, set to 10seconds
+int count = 0; // Dummy counter to test initial firebase updates
+bool isAuthenticated = false;// Store device authentication status
+
+void firebase_init() {
+  config.api_key = API_KEY;// configure firebase API Key
+  config.database_url = DATABASE_URL;// configure firebase realtime database url
+  Firebase.reconnectWiFi(true);// Enable WiFi reconnection 
+  Serial.println("------------------------------------");
+  Serial.println("Sign up new user...");
+  if (Firebase.signUp(&config, &auth, "", ""))// Sign in to firebase Anonymously
+    {
+      Serial.println("Success");
+      isAuthenticated = true;
+      databasePath = "/" + device_location;// Set the database path where updates will be loaded for this device
+      fuid = auth.token.uid.c_str();
+      lcd.clear(); lcd.print("Signed into Firebase!");
+    }
+  else
+    {
+      Serial.printf("Failed, %s\n", config.signer.signupError.message.c_str());
+      isAuthenticated = false;
+    }
+  config.token_status_callback = tokenStatusCallback;// Assign the callback function for the long running token generation task, see addons/TokenHelper.h
+  Firebase.begin(&config, &auth);// Initialise the firebase library
+}
+
+void sendToFirebase() {
+  
+    if (millis() - elapsedMillis > update_interval && isAuthenticated && Firebase.ready())// Check that 10 seconds has elapsed before, device is authenticated and the firebase service is ready.
+      {
+        elapsedMillis = millis();
+        Firebase.setFloat(fbdo, databasePath + "/pH", ph_value);
+        Firebase.setFloat(fbdo, databasePath + "/Water Tempurature", tempC);
+        Firebase.setFloat(fbdo, databasePath + "/TDS", tds_value);
+        Firebase.setFloat(fbdo, databasePath + "/Room Tempurature", dht_tempC);
+        Firebase.setFloat(fbdo, databasePath + "/Humidity", dht_humidity);
+        Firebase.setString(fbdo, databasePath + "/Pump Status", pump_status);
+        Firebase.setString(fbdo, databasePath + "/Heater Status", heater_status);
+      }
+}
 
 // ==================================================
 // ===========  MAIN SETUP ==========================
