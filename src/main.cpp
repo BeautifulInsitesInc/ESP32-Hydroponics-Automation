@@ -24,7 +24,10 @@
 
 // ---- FIREBASE SETUP --------------------------
 #define DEVICE_UID "1X"// Device ID
-
+#define API_KEY "AIzaSyAfFcN1ZnRzW-elpWK65mwCEGZgWwPPxRc"// Your Firebase Project Web API Key
+#define DATABASE_URL "https://conciergev1-default-rtdb.firebaseio.com/"// Your Firebase Realtime database URL
+#define USER_EMAIL "controller@conciergegrowers.ca"
+#define USER_PASSWORD "Success2022"
 
 
 
@@ -32,13 +35,13 @@ LiquidCrystal_I2C lcd(0x27, 20, 4);  // set the LCD address to 0x27 for a 16 cha
 SimpleTimer timer;
 Adafruit_ADS1115 ads; // Use this for the 16-bit version ADC
 
-//const char* ssid = "A Cat May Puree Randomly";
-//const char* password = "Success2021";
+const char* ssid = "A Cat May Puree Randomly";
+const char* password = "Success2021";
 
 //const char* ssid = "Office 2.4";
 //const char* ssid = "Free Viruses";
-const char* ssid = "TekSavvy";
-const char* password = "cracker70";
+//const char* ssid = "TekSavvy";
+//const char* password = "cracker70";
 
 AsyncWebServer server(80);
 
@@ -51,8 +54,8 @@ float moisture_delay = 1; // Delay between moisture sensing in minutes
 bool twelve_hour_clock = true; // Clock format
 
 float pump_init_delay = .5; // Minutes - Initial time before starting the pump on startup
-int pump_on_time = 1; // Minutes - how long the pump stays on for
-int pump_off_time = 2; // Minutes -  how long the pump stays off for
+int pump_on_time = 10; // Minutes - how long the pump stays on for
+int pump_off_time = 30; // Minutes -  how long the pump stays off for
 
 float ph_set_level = 6.9; // Desired pH level
 int ph_delay_minutes = 5;// miniumum period allowed between doses in minutes
@@ -448,6 +451,7 @@ millisDelay pumpOnTimer;
 millisDelay pumpOffTimer;
 bool clear_screen = false;
 String pump_status;
+String pump_time_string;
 
 void pumpInitilization() {
   pinMode(pump_pin, OUTPUT); digitalWrite(pump_pin,HIGH);
@@ -459,6 +463,10 @@ void setPumpSeconds() {// Change seconds into minutes and seconds
   pump_minutes = pump_seconds / 60;
   if (pump_seconds < 60) pump_minutes = 0;
   else pump_seconds = pump_seconds - (pump_minutes * 60);
+  if (pump_minutes < 10) pump_time_string = "0" + String(pump_minutes) +":";
+  else pump_time_string = String(pump_minutes) + ":";
+  if (pump_seconds <10) pump_time_string = pump_time_string +"0" +String(pump_seconds);
+  else pump_time_string = pump_time_string + String(pump_seconds);
 }
 
 void pumpTimer() {
@@ -706,9 +714,10 @@ void displayMainscreenData() {// Display the data that changes on main screen
   //----Display  Pump status
   lcd.setCursor(3,3);
   if (digitalRead(pump_pin) == 0) {lcd.print("ON "); pump_status = "ON";}
-  else {lcd.print("OFF"); pump_status = "off";}
+  else {lcd.print("OFF"); pump_status = "OFF";}
   lcd.setCursor(7,3); lcd.print("H:"); lcd.print(moisture_value,0); lcd.print("% ");
   lcd.setCursor(13,3); lcd.print("["); 
+  
   if (pump_minutes == 0) lcd.print(" 0");
   else if (pump_minutes<10) {lcd.print("0"); lcd.print(pump_minutes);}
         else lcd.print(pump_minutes); 
@@ -837,7 +846,7 @@ void displayTDS() {
   lcd.setCursor(0,2); lcd.print("TOL: ");
   lcd.setCursor(5,2);
   if (select_screen_option_number == 2) {// edit set level
-    ppm_tolerance = select_option*100;
+    ppm_tolerance = select_option*10;
     if (blinkDelay.justFinished()){
       if (blink_status_on == false) {lcd.print("    "); blink_status_on = true;}
       else {lcd.print(ppm_tolerance); blink_status_on = false;}
@@ -1050,14 +1059,14 @@ void rotaryLoop() {
                 EEPROM.write(5, ppm_set_1); EEPROM.write(6, ppm_set_2);
                 EEPROM.commit();
               }
-              rotaryEncoder.setBoundaries(100 / 100, 500 / 100, false); // setting tolorance range
+              rotaryEncoder.setBoundaries(10 / 10, 500 / 10, false); // setting tolorance range
               rotaryEncoder.setEncoderValue(ppm_tolerance / 100);
               blinkDelay.repeat();
               select_screen_option_number = 2;
               break;
             case 2: // set the ppm tolerence and prepare for dose time
-              ppm_tolerance = rotaryEncoder.readEncoder() *100;
-              if (EEPROM.read(7) != ppm_tolerance / 100) {EEPROM.write(7, ppm_tolerance /100); EEPROM.commit();}
+              ppm_tolerance = rotaryEncoder.readEncoder() *10;
+              if (EEPROM.read(7) != ppm_tolerance / 10) {EEPROM.write(7, ppm_tolerance /10); EEPROM.commit();}
               select_screen_option_number = 3;
               rotaryEncoder.setBoundaries(0, 20, true);
               rotaryEncoder.setEncoderValue(ppm_dose_seconds); // send it back to this screen
@@ -1118,54 +1127,15 @@ FirebaseData fbdo; // Firebase Realtime Database Object
 FirebaseAuth auth; // Firebase Authentication Object
 FirebaseConfig config; // Firebase configuration Object
 String uid; // to save User ID
-String databasePath = ""; // Firebase database path
-String fuid = ""; // Firebase Unique Identifier
+
+String databasePath; // Firebase database path
+//String fuid = ""; // Firebase Unique Identifier
 
 unsigned long elapsedMillis = 0; // Stores the elapsed time from device start up
-unsigned long update_interval = 10000; // The frequency of sensor updates to firebase, set to 10seconds
+unsigned long elapsedPumpMillis = 0; 
+unsigned long update_interval = 20000; // The frequency of sensor updates to firebase, set to 10seconds
 int count = 0; // Dummy counter to test initial firebase updates
 bool isAuthenticated = false;// Store device authentication status
-void firebase_init() {
-  config.api_key = API_KEY;// configure firebase API Key
-  auth.user.email = USER_EMAIL; // Assing teh user sign in credentials
-  auth.user.password = USER_PASSWORD;
-  config.database_url = DATABASE_URL;// configure firebase realtime database url
-  Firebase.reconnectWiFi(true);// Enable WiFi reconnection 
-  Serial.println("------------------------------------");
-  Serial.println("Sign up new user...");
-  if (Firebase.signUp(&config, &auth, USER_EMAIL, USER_PASSWORD))// Sign in to firebase Anonymously
-    {
-      Serial.println("Success");
-      isAuthenticated = true;
-      //databasePath = "/" + device_location;// Set the database path where updates will be loaded for this device
-      fuid = auth.token.uid.c_str();
-      lcd.clear(); lcd.print("Signed into Firebase!");
-    }
-  else
-    {
-      Serial.printf("Failed, %s\n", config.signer.signupError.message.c_str());
-      isAuthenticated = false;
-    }
-
-  config.token_status_callback = tokenStatusCallback;// Assign the callback function for the long running token generation task, see addons/TokenHelper.h
-  config.max_token_generation_retry = 5;// Assign the maximum retry of token generation
-  Firebase.begin(&config, &auth);// Initialise the firebase library
-
-  // Getting the user UID might take a few seconds
-  Serial.println("Getting User UID");
-  while ((auth.token.uid) == "") {
-    Serial.print('.');
-    delay(1000);
-  }
-  uid = auth.token.uid.c_str();
-  Serial.print("User UID: ");
-  Serial.println(uid);
-  databasePath = "/
-  
-  /" + uid;
-  Serial.print("databasePath : "); Serial.print(databasePath);
-
-}
 
 // Write float values to the database
 void sendFloat(String path, float value){
@@ -1183,15 +1153,64 @@ void sendFloat(String path, float value){
     Serial.println("REASON: " + fbdo.errorReason());
   }
 }
+
+
+void firebase_init() {
+  config.api_key = API_KEY;// configure firebase API Key
+  auth.user.email = USER_EMAIL; // Assing teh user sign in credentials
+  auth.user.password = USER_PASSWORD;
+  config.database_url = DATABASE_URL;// configure firebase realtime database url
+  Firebase.reconnectWiFi(true);// Enable WiFi reconnection 
+  fbdo.setResponseSize(4096);
+
+/*
+  Serial.println("------------------------------------");
+  Serial.println("Sign up new user...");
+  if (Firebase.signUp(&config, &auth, USER_EMAIL, USER_PASSWORD))// Sign in to firebase Anonymously
+    {
+      Serial.println("Success");
+      isAuthenticated = true;
+      //databasePath = "/" + device_location;// Set the database path where updates will be loaded for this device
+      uid = auth.token.uid.c_str();
+      lcd.clear(); lcd.print("Signed into Firebase!");
+    }
+  else
+    {
+      Serial.printf("Failed, %s\n", config.signer.signupError.message.c_str());
+      isAuthenticated = false;
+    }
+ */ 
+
+  config.token_status_callback = tokenStatusCallback;// Assign the callback function for the long running token generation task, see addons/TokenHelper.h
+  config.max_token_generation_retry = 5;// Assign the maximum retry of token generation
+  Firebase.begin(&config, &auth);// Initialise the firebase library
+
+  // Getting the user UID might take a few seconds
+  Serial.println("Getting User UID");
+  while ((auth.token.uid) == "") {
+    Serial.print('.');
+    delay(1000);
+  }
+  uid = auth.token.uid.c_str();
+  Serial.print("User UID: ");
+  Serial.println(uid);
+  databasePath = "/UsersData/" + uid;
+  Serial.println("databasePath : "); Serial.print(databasePath);
+
+}
+
+
 void sendToFirebase() {
-  
-    if (millis() - elapsedMillis > update_interval && isAuthenticated && Firebase.ready())// Check that 10 seconds has elapsed before, device is authenticated and the firebase service is ready.
+    //Serial.print("starting sendtoFirebase");
+    if (millis() - elapsedMillis > update_interval && Firebase.ready())// Check that 10 seconds has elapsed before, device is authenticated and the firebase service is ready.
       {
+        //Serial.print("made it though the if");
         // Send sensor readings
         String datatype = "/Sensor Readings";
         elapsedMillis = millis();
-        Serial.println("sending data");
-        sendFloat(databasePath + datatype + "/Last Reading", epochTime);
+        //Serial.println("sending data");
+        //sendFloat(databasePath + datatype + "/Last Reading test", epochTime);
+        //sendFloat(databasePath + datatype + "/pH test", ph_value);
         
         Firebase.setString(fbdo, databasePath + datatype + "/Last Reading", epochTime);
         Firebase.setString(fbdo, databasePath + datatype + "/Last Time", current_time);
@@ -1202,10 +1221,15 @@ void sendToFirebase() {
         Firebase.setFloat(fbdo, databasePath + datatype + "/Humidity", dht_humidity);
         Firebase.setString(fbdo, databasePath + datatype + "/Pump Status", pump_status);
         Firebase.setString(fbdo, databasePath + datatype + "/Heater Status", heater_status);
+        Firebase.setString(fbdo, databasePath + datatype + "/Pump Time", pump_time_string);
+        Firebase.setInt(fbdo, databasePath + datatype + "/Root Dampness", moisture_value);
 
         // Check settings
         datatype = "/Settings";
         //Firebase.setString(fbdo, databasePath + datatype + "/Local IP", String(local_ip));
+        float fb_ph_set_level = Firebase.getFloat(fbdo, databasePath + datatype + "/set pH");
+        Serial.print("fb_ph_set_level : "); Serial.println(fb_ph_set_level);
+
         Firebase.setFloat(fbdo, databasePath + datatype + "/set pH", ph_set_level);
         Firebase.setFloat(fbdo, databasePath + datatype + "/set TDS", ppm_set_level);
         Firebase.setFloat(fbdo, databasePath + datatype + "/set Water Tempurature", heater);
@@ -1215,19 +1239,28 @@ void sendToFirebase() {
         Firebase.setFloat(fbdo, databasePath + datatype + "/pH Tolorance", ph_tolerance);
         Firebase.setInt(fbdo, databasePath + datatype + "/Nutrient Dose Time", ppm_dose_seconds);
         Firebase.setFloat(fbdo, databasePath + datatype + "/Nutrient Tolorance", ppm_tolerance);
+        Firebase.setString(fbdo, databasePath + datatype + "/Pump Time", pump_time_string);
         Firebase.setInt(fbdo, databasePath + datatype + "/pH Dose Delay", ph_delay_minutes);
         Firebase.setInt(fbdo, databasePath + datatype + "/Nutrient Delay", ppm_delay_minutes);
         Firebase.setFloat(fbdo, databasePath + datatype + "/set pH", ph_set_level);
         Firebase.setInt(fbdo, databasePath + datatype + "/Temp Units", temp_in_c);
         Firebase.setString(fbdo, databasePath + datatype + "/User ID", uid);
-        
-        float fb_set_ph = Firebase.getFloat(fbdo, "Controler 1/Settings/set Water Tempurature");
-        Serial.print("fb_set_ph : "); Serial.println(fb_set_ph); Serial.println(Firebase.get(fbdo, databasePath + datatype + "/Nutrient Tolorance"));
-        int test = Firebase.getInt(fbdo, databasePath + datatype + "/Nutrient Dose Time");
-        Serial.print("test : "); Serial.println(test); 
+        Firebase.setString(fbdo, databasePath + datatype + "/Device UID", DEVICE_UID);
       }
+    
 }
+/*
+void sendPumpTimetoFirebase()
+  {
+    if (millis() - elapsedPumpMillis > 1000 && Firebase.ready())
+          {
+            elapsedPumpMillis = millis();
+            String datatype = "/Sensor Readings";
+            Firebase.setString(fbdo, databasePath + datatype + "/Pump Time", pump_time_string);
+          }
 
+  }
+*/
 // ==================================================
 // ===========  MAIN SETUP ==========================
 // ==================================================
@@ -1239,7 +1272,7 @@ void setup(void) {
   Serial.println("Starting Hydroponics Automation Controler");
   timer.run(); // Initiates SimpleTimer
   setupWebServer();
-  firebase_init();
+  //firebase_init();
   // Stored Defaults
   #define EEPROM_SIZE 14
   EEPROM.begin(EEPROM_SIZE);
@@ -1249,9 +1282,9 @@ void setup(void) {
   if (EEPROM.read(3) != 255) ph_tolerance = (float)EEPROM.read(3) / 10; // ph tolerance
   if (EEPROM.read(4) != 255) ph_calibration_adjustment = EEPROM.read(4);// ph calbration
   if (EEPROM.read(5) != 255 && EEPROM.read(6) != 255) ppm_set_level = (EEPROM.read(5) + EEPROM.read(6)) * 100 ; // ppm set 1
-  if (EEPROM.read(7) != 255) ppm_tolerance = EEPROM.read(7)*100; // ppm tolerance
-  if (EEPROM.read(8) != 255) pump_on_time = EEPROM.read(7);// pump on time
-  if (EEPROM.read(9) != 255) pump_off_time = EEPROM.read(8); // pump off time
+  if (EEPROM.read(7) != 255) ppm_tolerance = EEPROM.read(7)*10; // ppm tolerance
+  if (EEPROM.read(8) != 255) pump_on_time = EEPROM.read(8);// pump on time
+  if (EEPROM.read(9) != 255) pump_off_time = EEPROM.read(9); // pump off time
   if (EEPROM.read(10) != 255) ppm_dose_seconds = EEPROM.read(10); // pump off time
   if (EEPROM.read(11) != 255) ppm_delay_minutes = EEPROM.read(11); // PPM dose delay
   if (EEPROM.read(12) != 255) ph_delay_minutes = EEPROM.read(12); // ph dose delay
@@ -1310,6 +1343,7 @@ void loop(void) {
   epochTime = getTime();
   current_time = (String)hour + ":" + (String)minute;
   //Serial.print("about to send to firebase");
-  sendToFirebase();
+  //sendToFirebase();
+  //sendPumpTimetoFirebase();
 }
 // ----------------- END MAIN LOOP ------------------------
